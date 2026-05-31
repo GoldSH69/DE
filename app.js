@@ -5,8 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const searchBtn = document.getElementById('search-btn');
   const videoGridContainer = document.getElementById('video-grid-container');
   const consoleTerminal = document.getElementById('console-terminal');
+  const btnSaveLocal = document.getElementById('btn-save-local');
   const btnTriggerAction = document.getElementById('btn-trigger-action');
-  const recentSearchesContainer = document.getElementById('recent-searches-container');
   
   // 모달 요소 참조
   const btnSettings = document.getElementById('btn-settings');
@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedVideoUrl = "";
   let selectedVideoTitle = "";
   let statusPollingInterval = null;
+  let activeEventSource = null;
 
   // 1. 연동 키 설정 모달 제어
   btnSettings.addEventListener('click', () => {
@@ -86,11 +87,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!keyword) return;
     let searches = JSON.parse(localStorage.getItem('recent_searches') || '[]');
     
-    // 중복 제거 및 리스트 맨 앞으로 이동
     searches = searches.filter(k => k !== keyword);
     searches.unshift(keyword);
     
-    // 최대 8개까지만 저장
     if (searches.length > 8) searches.pop();
     
     localStorage.setItem('recent_searches', JSON.stringify(searches));
@@ -103,7 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') executeSearch();
   });
 
-  // 무료 고화질 공개 CORS 프록시 API 4중 방어 배열
   const proxyEndpoints = [
     url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -120,7 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 최근 검색어 기록
     saveRecentSearch(query);
 
     searchBtn.disabled = true;
@@ -134,9 +131,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     selectedVideoUrl = "";
     selectedVideoTitle = "";
+    btnSaveLocal.disabled = true;
     btnTriggerAction.disabled = true;
 
-    // 기간 검색어 믹싱
     let periodSuffix = "";
     if (period === "today") periodSuffix = " \"today\"";
     else if (period === "this_week") periodSuffix = " \"this week\"";
@@ -146,14 +143,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let parsedVideos = [];
     let success = false;
 
-    // 4중 프록시 자동 로테이션 루프 기동
     for (let i = 0; i < proxyEndpoints.length; i++) {
       const getProxyUrl = proxyEndpoints[i];
       const requestUrl = getProxyUrl(targetUrl);
       
       console.log(`[JS Parser] Trying CORS Proxy #${i + 1}...`);
       try {
-        // 프록시 서버별 6초 타임아웃 제한 장치
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6500);
 
@@ -174,12 +169,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (parsedVideos.length > 0) {
           success = true;
-          console.log(`[JS Parser] Proxy #${i + 1} Succeeded! Found ${parsedVideos.length} videos.`);
-          break; // 성공 시 루프 중단
+          break;
         }
       } catch (err) {
         console.warn(`[JS Parser] Proxy #${i + 1} Failed: ${err.message}. Retrying next...`);
-        // 터미널 창이 비어있지 않다면 경고 한 줄 출력
         if (consoleTerminal.innerHTML.trim() !== "") {
           appendTerminalLine(`⚠️ ${i + 1}번 프록시 지연... 우회 경로 #${i + 2}번 활성화 시도 중`, "error");
         }
@@ -202,7 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
     searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
   }
 
-  // 유튜브 HTML 소스코드에서 비디오 데이터 JSON 큐레이션 및 조회수 기준 정렬 파서
   function parseYoutubeHtml(html) {
     const videos = [];
     try {
@@ -309,7 +301,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const durationText = formatDuration(video.duration);
 
       card.innerHTML = `
-        <!-- 새 창으로 원본 확인용 링크 -->
         <a href="${video.url}" target="_blank" class="video-thumbnail-container" title="클릭 시 새 창에서 원본 유튜브 감상">
           <img src="${thumbnailSrc}" class="video-thumbnail" alt="${escapeHtml(video.title)}">
           <span class="video-duration">${durationText}</span>
@@ -348,7 +339,10 @@ document.addEventListener('DOMContentLoaded', () => {
         actBtn.style.backgroundColor = 'var(--color-point)';
         actBtn.style.color = '#ffffff';
 
+        // 듀열 제어 버튼 모두 활성화
+        btnSaveLocal.disabled = false;
         btnTriggerAction.disabled = false;
+        
         appendTerminalLine(`🎯 제작 타겟 확정: [${video.title}]`);
       });
 
@@ -356,7 +350,77 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 5. GitHub Actions API 다이렉트 트리거 기동 (브라우저 직접 API 송신)
+  // ==================================================================
+  // 1번 상황 버튼: 로컬 컴퓨터 즉시 가공 저장 클릭 이벤트 복원
+  // ==================================================================
+  btnSaveLocal.addEventListener('click', () => {
+    // 깃허브 페이지 등 완전 외부 접속 상황 감지 체크 
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
+    
+    if (!isLocal) {
+      appendTerminalLine("⚠️ [로컬 감지 실패] 깃허브 웹페이지로 인터넷 원격 접속 중이시므로 내 컴퓨터 폴더에 다이렉트 저장은 불가능합니다. 우측의 [GitHub Actions] 버튼을 클릭해 기동해 주세요.", "error");
+      alert("외부 인터넷 접속 중에는 로컬 직접 저장을 지원하지 않습니다.\n\n우측의 [GitHub Actions] 버튼을 사용하여 원격으로 제작하시고 ZIP 아카이브를 다운로드해 가시기 바랍니다.");
+      return;
+    }
+
+    if (!selectedVideoUrl) {
+      alert("제작할 예능 대상 영상을 선택해 주세요.");
+      return;
+    }
+
+    if (activeEventSource) activeEventSource.close();
+
+    consoleTerminal.innerHTML = "";
+    btnSaveLocal.disabled = true;
+    btnTriggerAction.disabled = true;
+
+    appendTerminalLine("🏠 로컬 파이썬 요리 엔진 준비 중...", "success");
+
+    // 로컬 저장 SSE API 개시
+    const sseUrl = `/api/stream_generate_local?video_url=${encodeURIComponent(selectedVideoUrl)}&title=${encodeURIComponent(selectedVideoTitle)}`;
+    activeEventSource = new EventSource(sseUrl);
+
+    activeEventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.status === 'progress') {
+        appendTerminalLine(data.message);
+      } else if (data.status === 'analysis') {
+        renderGeminiAnalysis(data.data);
+      } else if (data.status === 'complete_local') {
+        appendTerminalLine(data.message, "success");
+        appendTerminalLine(`📁 CapCut FCP 7 XML 복제 주소: ${data.xml_path}`, "success");
+        
+        // 경로 클립보드 복사 배려 서비스
+        navigator.clipboard.writeText(data.xml_path).then(() => {
+          alert(`🎉 [로컬 직접 저장 완료!]\n\nCapCut XML 파일이 내 컴퓨터 output/ 폴더에 직접 수립 완료되었습니다.\n\n경로: ${data.xml_path}\n\n(경로가 복사되었습니다! CapCut '가져오기' 주소창에 Ctrl+V 하세요!)`);
+        }).catch(() => {
+          alert(`🎉 [로컬 직접 저장 완료!]\n\nCapCut XML 파일이 내 컴퓨터 output/ 폴더에 수립되었습니다.\n\n경로: ${data.xml_path}`);
+        });
+
+        resetDualButtons();
+        activeEventSource.close();
+        activeEventSource = null;
+      } else if (data.status === 'error') {
+        appendTerminalLine(`❌ 로컬 에러: ${data.message}`, "error");
+        resetDualButtons();
+        activeEventSource.close();
+        activeEventSource = null;
+      }
+    };
+
+    activeEventSource.onerror = () => {
+      appendTerminalLine("❌ 로컬 서버 통신 지연이 발생하여 연결을 해제합니다.", "error");
+      resetDualButtons();
+      activeEventSource.close();
+      activeEventSource = null;
+    };
+  });
+
+  // ==================================================================
+  // 2번 상황 버튼: GitHub Actions API 다이렉트 트리거 기동 (원격/클라우드용)
+  // ==================================================================
   btnTriggerAction.addEventListener('click', async () => {
     const token = localStorage.getItem('github_token');
     const owner = localStorage.getItem('repo_owner') || "GoldSH69";
@@ -374,8 +438,9 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    btnSaveLocal.disabled = true;
     btnTriggerAction.disabled = true;
-    btnTriggerAction.innerHTML = '<span class="spinner"></span> GitHub Actions 클라우드 러너 서버 배정 중...';
+    btnTriggerAction.innerHTML = '<span class="spinner"></span> 깃허브 러너 배정 중...';
     consoleTerminal.innerHTML = "";
     appendTerminalLine("🚀 1단계: 깃허브 API를 사용해 원격 가상 컴퓨터 기동 신호 직접 전송 중...", "success");
 
@@ -410,8 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (err) {
       appendTerminalLine(`❌ 기동 실패: ${err.message}`, "error");
-      btnTriggerAction.disabled = false;
-      btnTriggerAction.innerHTML = '<i class="fa-solid fa-rocket"></i> 쇼츠 자동화 제작 기동 (GitHub Actions)';
+      resetDualButtons();
     }
   });
 
@@ -468,7 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderZipDownloadButton(artifactPageUrl);
           } else {
             appendTerminalLine(`❌ [GitHub Actions 실패] 빌드가 실패로 종료되었습니다 (결과: ${conclusion}).`, "error");
-            resetTriggerButton();
+            resetDualButtons();
           }
         }
       } catch (err) {
@@ -493,7 +557,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function resetTriggerButton() {
+  function resetDualButtons() {
+    btnSaveLocal.disabled = false;
     btnTriggerAction.disabled = false;
     btnTriggerAction.innerHTML = '<i class="fa-solid fa-rocket"></i> 쇼츠 자동화 제작 기동 (GitHub Actions)';
   }
@@ -509,6 +574,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
     consoleTerminal.appendChild(line);
     consoleTerminal.scrollTop = consoleTerminal.scrollHeight;
+  }
+
+  function renderGeminiAnalysis(analysis) {
+    appendTerminalLine("==================================================", "success");
+    appendTerminalLine(`💡 Gemini AI 쇼츠 기획안 수집 완료`, "success");
+    appendTerminalLine(`기획 사유: ${analysis.rationale}`);
+    appendTerminalLine(`총 분량: ${analysis.total_duration_seconds}초`, "success");
+    appendTerminalLine("--------------------------------------------------");
+    
+    analysis.selected_scenes.forEach((scene, i) => {
+      appendTerminalLine(`  🎬 씬 ${i + 1} [${scene.start_time} ~ ${scene.end_time}]`);
+      appendTerminalLine(`    - 나레이션(JA): ${scene.tts_text}`);
+      appendTerminalLine(`    - 한글자막(KO): ${scene.caption}`);
+    });
+    appendTerminalLine("==================================================", "success");
   }
 
   function formatDuration(sec) {
