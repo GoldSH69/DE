@@ -116,6 +116,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
   }
+  const invidiousInstances = [
+    'https://yewtu.be',
+    'https://invidious.projectsegfau.lt',
+    'https://invidious.privacydev.net',
+    'https://inv.tux.im',
+    'https://invidious.slipfox.xyz',
+    'https://invidious.nerdvpn.de'
+  ];
 
   async function executeSearch() {
     const query = searchInput.value.trim();
@@ -210,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     videoGridContainer.innerHTML = `
       <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
         <span class="spinner" style="border-top-color: var(--color-point); width: 30px; height: 30px; margin-bottom: 12px;"></span>
-        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">5중 프록시 로테이션 망을 통해 유튜브 스캔 중...</p>
+        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">멀티티어 탐색망을 통해 인기 영상 스캔 중...</p>
       </div>
     `;
 
@@ -219,67 +227,146 @@ document.addEventListener('DOMContentLoaded', () => {
     btnSaveLocal.disabled = true;
     btnTriggerAction.disabled = true;
 
+    // 0단계: 로컬 백엔드 API 검색 시도 (로컬 서버 구동 시 최고 속도 및 100% 성공율 보장)
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
+    
+    if (isLocal) {
+      appendTerminalLine("🏠 로컬 백엔드 탐색 엔진 구동 시도 중...", "success");
+      try {
+        const response = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: query, period: period })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.results && data.results.length > 0) {
+            renderVideoCards(data.results);
+            appendTerminalLine(`✅ 로컬 스캔 성공: [${query}] (${data.results.length}개 후보 발굴)`, "success");
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("[Local Search Fail] Falling back to remote proxies...", err);
+      }
+    }
+
     let periodSuffix = "";
     if (period === "today") periodSuffix = " \"today\"";
     else if (period === "this_week") periodSuffix = " \"this week\"";
     else if (period === "this_month") periodSuffix = " \"this month\"";
 
-    const targetUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + periodSuffix)}`;
-    let parsedVideos = [];
-    let success = false;
-
-    for (let i = 0; i < proxyEndpoints.length; i++) {
-      const getProxyUrl = proxyEndpoints[i];
-      const requestUrl = getProxyUrl(targetUrl);
+    // 1단계: 6중 인비디어스 오픈 API 로테이션 검색 시도 (CORS 완전 개방 구조)
+    appendTerminalLine("📡 1단계: 6중 인비디어스 오픈 검색망 연동 시도 중...");
+    let searchSuccess = false;
+    
+    for (let i = 0; i < invidiousInstances.length; i++) {
+      const instance = invidiousInstances[i];
+      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query + periodSuffix)}&type=video`;
       
-      console.log(`[JS Parser] Trying CORS Proxy #${i + 1}...`);
+      console.log(`[Invidious Search] Trying instance: ${instance}`);
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6500);
-
-        const response = await fetch(requestUrl, { signal: controller.signal });
+        const timeoutId = setTimeout(() => controller.abort(), 6000); // 6초 타임아웃
+        
+        const response = await fetch(searchUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
-
+        
         if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
         
-        let html = "";
-        if (requestUrl.includes('allorigins')) {
-          const data = await response.json();
-          html = data.contents;
-        } else {
-          html = await response.text();
-        }
-
-        parsedVideos = parseYoutubeHtml(html);
-        
-        if (parsedVideos.length > 0) {
-          success = true;
-          break;
+        const items = await response.json();
+        if (Array.isArray(items) && items.length > 0) {
+          const videos = items
+            .filter(item => item.type === 'video' && item.videoId)
+            .map(item => ({
+              video_id: item.videoId,
+              title: item.title,
+              url: `https://www.youtube.com/watch?v=${item.videoId}`,
+              view_count: item.viewCount || 0,
+              duration: item.lengthSeconds || 0,
+              published_date_text: item.publishedText || "최근",
+              published_date: "",
+              collected_at: new Date().toISOString()
+            }))
+            .filter(v => !(v.duration > 0 && v.duration < 120));
+            
+          if (videos.length > 0) {
+            videos.sort((a, b) => b.view_count - a.view_count);
+            const topVideos = videos.slice(0, 8);
+            renderVideoCards(topVideos);
+            appendTerminalLine(`✅ 오픈 검색 스캔 성공 (${instance.replace('https://', '')})`, "success");
+            searchSuccess = true;
+            break;
+          }
         }
       } catch (err) {
-        console.warn(`[JS Parser] Proxy #${i + 1} Failed: ${err.message}. Retrying next...`);
-        appendTerminalLine(`⚠️ ${i + 1}번 프록시 혼잡... 우회 경로 #${i + 2}번 자동 스위칭 중`, "error");
+        console.warn(`[Invidious Search] Instance ${instance} failed: ${err.message}`);
+        appendTerminalLine(`⚠️ 오픈 검색망 #${i + 1} 혼잡... 우회망 #${i + 2} 스위칭 중`);
       }
     }
 
-    if (success) {
-      renderVideoCards(parsedVideos);
-    } else {
-      alert("⚠️ 유튜브 검색 서버 혼잡: 5개 공용 프록시 우회로가 모두 일시 지연 상태입니다.\n\n💡 해결 방법:\n유튜브에서 소스로 사용하고 싶은 영상 주소(URL)를 복사한 뒤 검색창에 붙여넣고 [소재 스캔하기]를 눌러보세요. 프록시 서버 거침없이 1초 만에 즉시 가져올 수 있습니다.");
-      videoGridContainer.innerHTML = `
-        <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
-          <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: #c62828; margin-bottom: 12px;"></i>
-          <p style="color: #c62828; font-weight: 600;">실시간 스캔 실패: 프록시 우회망 전체 지연</p>
-          <p style="font-size: 0.85rem; color: var(--color-sub); margin-top: 8px;">원하는 영상의 유튜브 주소(URL)를 검색창에 직접 입력하여 바로 진행해 보세요.</p>
-        </div>
-      `;
+    // 2단계: 5중 프록시 로테이션 HTML 스크래핑 검색 시도 (최종 백업)
+    if (!searchSuccess) {
+      appendTerminalLine("📡 2단계: 5중 프록시 로테이션 HTML 스크래퍼 시동 중...");
+      const targetUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + periodSuffix)}`;
+      let parsedVideos = [];
+      let success = false;
+
+      for (let i = 0; i < proxyEndpoints.length; i++) {
+        const getProxyUrl = proxyEndpoints[i];
+        const requestUrl = getProxyUrl(targetUrl);
+        
+        console.log(`[JS Parser] Trying CORS Proxy #${i + 1}...`);
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6500);
+
+          const response = await fetch(requestUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+          
+          let html = "";
+          if (requestUrl.includes('allorigins')) {
+            const data = await response.json();
+            html = data.contents;
+          } else {
+            html = await response.text();
+          }
+
+          parsedVideos = parseYoutubeHtml(html);
+          
+          if (parsedVideos.length > 0) {
+            success = true;
+            break;
+          }
+        } catch (err) {
+          console.warn(`[JS Parser] Proxy #${i + 1} Failed: ${err.message}. Retrying next...`);
+          appendTerminalLine(`⚠️ ${i + 1}번 프록시 혼잡... 우회 경로 #${i + 2}번 자동 스위칭 중`, "error");
+        }
+      }
+
+      if (success) {
+        renderVideoCards(parsedVideos);
+      } else {
+        alert("⚠️ 유튜브 검색 서버 혼잡: 전 세계 우회 검색망이 일시 지연 상태입니다.\n\n💡 해결 방법:\n가공 소스로 점찍어 둔 특정 영상이 있으시다면, 해당 영상의 주소(URL)를 직접 검색창에 붙여넣어 보세요. 지연 없이 1초 만에 즉시 가져올 수 있습니다.");
+        videoGridContainer.innerHTML = `
+          <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: #c62828; margin-bottom: 12px;"></i>
+            <p style="color: #c62828; font-weight: 600;">실시간 스캔 실패: 검색망 전체 지연</p>
+            <p style="font-size: 0.85rem; color: var(--color-sub); margin-top: 8px;">원하는 영상의 유튜브 주소(URL)를 검색창에 직접 입력하여 바로 가공을 시작할 수도 있습니다.</p>
+          </div>
+        `;
+      }
     }
 
     searchBtn.disabled = false;
     searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
-  }
-
-  function parseYoutubeHtml(html) {
+  }  function parseYoutubeHtml(html) {
     const videos = [];
     try {
       const match = html.match(/ytInitialData\s*=\s*({.+?});/);
