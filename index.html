@@ -120,6 +120,12 @@
           <input type="password" id="input-gemini-key" placeholder="Gemini API 인증 키 입력 (비워두면 모의 대본 기획 모드 구동)">
         </div>
 
+        <div class="form-group" style="margin-top: 16px;">
+          <label for="input-youtube-cookies">YouTube Cookies (Netscape format) - 선택사항</label>
+          <textarea id="input-youtube-cookies" rows="4" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); padding: 8px; font-family: monospace; font-size: 0.8rem; background-color: var(--color-bg); resize: vertical; box-sizing: border-box;" placeholder="# Netscape HTTP Cookie File... 형식의 유튜브 쿠키 텍스트를 복사해 붙여넣으세요. (유튜브 로봇 확인 차단 우회용)"></textarea>
+          <span class="help-text" style="font-size: 0.75rem; color: var(--color-sub); display: block; margin-top: 4px; line-height: 1.3;">유튜브 'Sign in to confirm you're not a bot' 차단 에러 발생 시, 크롬 확장프로그램('Get cookies.txt LOCALLY' 등)을 사용해 추출한 YouTube 쿠키 텍스트를 복사해 그대로 붙여넣으세요.</span>
+        </div>
+
         <div class="form-row" style="margin-top: 16px;">
           <div class="form-group" style="flex: 1;">
             <label for="input-repo-owner">GitHub 계정명 (Owner)</label>

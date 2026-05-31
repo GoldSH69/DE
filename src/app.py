@@ -151,6 +151,7 @@ def api_stream_generate_local():
     """로컬 1번 상황: 로컬 컴퓨터 내에서 직접 컷팅, TTS 및 FCP XML 즉시 실시간 복원"""
     video_url = request.args.get('video_url', '')
     title = request.args.get('title', '알 수 없는 비디오')
+    cookies_content = request.args.get('cookies', '')
     
     if not video_url:
         def err_stream():
@@ -166,6 +167,17 @@ def api_stream_generate_local():
             from src.processor import run_processing_pipeline
             from src.bridge import create_fcp_xml, create_subtitles_srt
             from src.main import fetch_and_clean_subtitles
+            
+            # 사용자로부터 전달된 쿠키 텍스트가 있다면 output/cookies.txt 파일 생성
+            if cookies_content:
+                try:
+                    os.makedirs(OUTPUT_DIR, exist_ok=True)
+                    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
+                    with open(cookies_path, 'w', encoding='utf-8') as f:
+                        f.write(cookies_content)
+                    yield f"data: {json.dumps({'status': 'progress', 'message': '🍪 사용자 유튜브 인증 쿠키 파일 등록 완료'})}\n\n"
+                except Exception as ce:
+                    yield f"data: {json.dumps({'status': 'progress', 'message': f'⚠️ 쿠키 설정 저장 실패 (무시하고 계속 진행): {str(ce)}'})}\n\n"
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '🚀 1단계: 유튜브 동영상 자막(SRT/VTT) 추출 중...'})}\n\n"
             transcript = fetch_and_clean_subtitles(video_url)

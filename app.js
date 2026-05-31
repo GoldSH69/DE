@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     inputGeminiKey.value = localStorage.getItem('gemini_api_key') || "";
     inputRepoOwner.value = localStorage.getItem('repo_owner') || "GoldSH69";
     inputRepoName.value = localStorage.getItem('repo_name') || "DE";
+    document.getElementById('input-youtube-cookies').value = localStorage.getItem('youtube_cookies') || "";
     
     settingsModal.style.display = 'flex';
   });
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gemini = inputGeminiKey.value.trim();
     const owner = inputRepoOwner.value.trim();
     const name = inputRepoName.value.trim();
+    const cookies = document.getElementById('input-youtube-cookies').value.trim();
 
     if (!token) {
       alert("GitHub Token은 API 연동 구동을 위한 필수 값입니다.");
@@ -53,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('gemini_api_key', gemini);
     localStorage.setItem('repo_owner', owner);
     localStorage.setItem('repo_name', name);
+    localStorage.setItem('youtube_cookies', cookies);
 
     settingsModal.style.display = 'none';
     alert("🔑 연동 설정이 브라우저 로컬 저장소에 저장되었습니다.");
@@ -562,7 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
     appendTerminalLine("🏠 로컬 파이썬 요리 엔진 준비 중...", "success");
 
     // 로컬 저장 SSE API 개시
-    const sseUrl = `/api/stream_generate_local?video_url=${encodeURIComponent(selectedVideoUrl)}&title=${encodeURIComponent(selectedVideoTitle)}`;
+    const localCookies = localStorage.getItem('youtube_cookies') || "";
+    const sseUrl = `/api/stream_generate_local?video_url=${encodeURIComponent(selectedVideoUrl)}&title=${encodeURIComponent(selectedVideoTitle)}&cookies=${encodeURIComponent(localCookies)}`;
     activeEventSource = new EventSource(sseUrl);
 
     activeEventSource.onmessage = (event) => {
@@ -642,7 +646,8 @@ document.addEventListener('DOMContentLoaded', () => {
           ref: 'main',
           inputs: {
             video_url: selectedVideoUrl,
-            gemini_api_key: gemini
+            gemini_api_key: gemini,
+            youtube_cookies: localStorage.getItem('youtube_cookies') || ""
           }
         })
       });

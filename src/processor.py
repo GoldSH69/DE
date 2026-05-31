@@ -46,9 +46,32 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
         'merge_output_format': 'mp4',
     }
     
+    # 지능형 쿠키(Cookies) 주입 엔진 가동 (유튜브 로봇 방지 우회)
+    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
+    if os.path.exists(cookies_path):
+        print(f"[Processor] Detected custom cookies.txt -> Using cookie file: {cookies_path}")
+        ydl_opts['cookiefile'] = cookies_path
+    elif not os.environ.get("GITHUB_ACTIONS"):
+        # 깃허브 액션 환경이 아닌 로컬 PC 구동 시에만 브라우저로부터 로그인 쿠키 실시간 흡수
+        try:
+            print("[Processor] Local environment detected. Auto-loading cookies from Chrome/Edge/Firefox...")
+            ydl_opts['cookiesfrombrowser'] = ('chrome', 'edge', 'firefox', 'brave', 'safari', 'opera')
+        except Exception as e:
+            print(f"[Processor] Browser cookies load skipped: {e}")
+            
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video_url])
+        except Exception as yde:
+            # 브라우저 잠김 등의 사유로 쿠키 로드 에러 시 쿠키 옵션 제거하고 재시도하는 안전 폴백
+            if 'cookiesfrombrowser' in ydl_opts:
+                print(f"[Processor] Browser cookies db locked ({yde}). Retrying download without browser cookies...")
+                del ydl_opts['cookiesfrombrowser']
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([video_url])
+            else:
+                raise yde
         print(f"[Processor] Download completed: {target_path}")
         return target_path
     except Exception as e:
@@ -57,6 +80,7 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
         print("[Processor] Retrying with generic best format...")
         try:
             ydl_opts['format'] = 'best'
+            # cookiesfrombrowser가 예전에 실패했다면 옵션에서 제거된 상태
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
             return target_path

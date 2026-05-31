@@ -34,9 +34,32 @@ def fetch_and_clean_subtitles(video_url):
         'quiet': True
     }
     
+    # 지능형 쿠키(Cookies) 주입 엔진 가동 (유튜브 로봇 방지 우회)
+    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
+    if os.path.exists(cookies_path):
+        print(f"[Main] Detected custom cookies.txt -> Using cookie file: {cookies_path}")
+        ydl_opts['cookiefile'] = cookies_path
+    elif not os.environ.get("GITHUB_ACTIONS"):
+        # 깃허브 액션 환경이 아닌 로컬 PC 구동 시에만 브라우저로부터 로그인 쿠키 실시간 흡수
+        try:
+            print("[Main] Local environment detected. Auto-loading cookies from Chrome/Edge/Firefox...")
+            ydl_opts['cookiesfrombrowser'] = ('chrome', 'edge', 'firefox', 'brave', 'safari', 'opera')
+        except Exception as e:
+            print(f"[Main] Browser cookies load skipped: {e}")
+            
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=True)
+        except Exception as yde:
+            # 브라우저 잠김 등의 사유로 쿠키 로드 에러 시 쿠키 옵션 제거하고 재시도하는 안전 폴백
+            if 'cookiesfrombrowser' in ydl_opts:
+                print(f"[Main] Browser cookies db locked ({yde}). Retrying search without browser cookies...")
+                del ydl_opts['cookiesfrombrowser']
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(video_url, download=True)
+            else:
+                raise yde
             
         # 다운로드된 파일 탐색 (.vtt 또는 .srt 확장자)
         sub_file = None

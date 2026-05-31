@@ -19,6 +19,10 @@ on:
         options:
           - ja-JP-NanamiNeural
           - ja-JP-KeitaNeural
+      youtube_cookies:
+        description: 'YouTube Cookies (Netscape format) to bypass bot check'
+        required: false
+        type: string
 
 jobs:
   build-and-cut:
@@ -52,6 +56,11 @@ jobs:
         # 1. 아웃풋 디렉토리 생성
         mkdir -p output/video_cuts
         mkdir -p output/tts_voices
+        # 만약 사용자 쿠키 입력값이 전달되었다면 output/cookies.txt 파일 기입
+        if [ ! -z "${{ inputs.youtube_cookies }}" ]; then
+          echo "${{ inputs.youtube_cookies }}" > output/cookies.txt
+          echo "[Workflow] Custom cookies.txt written successfully to output/cookies.txt"
+        fi
         # 2. 메인 파이프라인 기동 (첫 번째 인자로 비디오 URL 전달)
         python -m src.main "${{ inputs.video_url }}"
 
