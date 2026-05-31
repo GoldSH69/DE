@@ -274,6 +274,38 @@ def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week")
                 
     # 전체 수집 후 조회수 높은 순으로 최종 내림차순 정렬
     videos.sort(key=lambda x: x.get('view_count', 0), reverse=True)
+    
+    # [자막 유무 및 언어 실시간 초고속 병렬 pre-scan 스캔 엔진 가동]
+    import concurrent.futures
+    from youtube_transcript_api import YouTubeTranscriptApi
+    
+    def check_video_subtitles(video_item):
+        try:
+            v_id = video_item.get("video_id")
+            if not v_id:
+                video_item["has_subtitles"] = False
+                video_item["subtitle_languages"] = []
+                return video_item
+                
+            # 100% 익명으로 자막 목록을 가져와 가능한 언어를 실시간 스캔
+            transcript_list_obj = YouTubeTranscriptApi.list(v_id)
+            langs = []
+            for t in transcript_list_obj:
+                langs.append(t.language_code.upper())
+                
+            video_item["has_subtitles"] = len(langs) > 0
+            video_item["subtitle_languages"] = langs
+        except Exception:
+            video_item["has_subtitles"] = False
+            video_item["subtitle_languages"] = []
+            
+        return video_item
+        
+    print(f"[Collector] Starting parallel subtitle pre-scan for {len(videos)} candidates...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        videos = list(executor.map(check_video_subtitles, videos))
+        
+    print("[Collector] Subtitle pre-scanning complete.")
     return videos
 
 def collect_trends(channels=None, keywords=None, limit_per_source=5):

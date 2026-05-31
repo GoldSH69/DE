@@ -30,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
     inputGeminiKey.value = localStorage.getItem('gemini_api_key') || "";
     inputRepoOwner.value = localStorage.getItem('repo_owner') || "GoldSH69";
     inputRepoName.value = localStorage.getItem('repo_name') || "DE";
-    document.getElementById('input-youtube-cookies').value = localStorage.getItem('youtube_cookies') || "";
     
     settingsModal.style.display = 'flex';
   });
@@ -44,7 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const gemini = inputGeminiKey.value.trim();
     const owner = inputRepoOwner.value.trim();
     const name = inputRepoName.value.trim();
-    const cookies = document.getElementById('input-youtube-cookies').value.trim();
 
     if (!token) {
       alert("GitHub Token은 API 연동 구동을 위한 필수 값입니다.");
@@ -55,7 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('gemini_api_key', gemini);
     localStorage.setItem('repo_owner', owner);
     localStorage.setItem('repo_name', name);
-    localStorage.setItem('youtube_cookies', cookies);
 
     settingsModal.style.display = 'none';
     alert("🔑 연동 설정이 브라우저 로컬 저장소에 저장되었습니다.");
@@ -487,6 +484,26 @@ document.addEventListener('DOMContentLoaded', () => {
       const thumbnailSrc = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
       const durationText = formatDuration(video.duration);
 
+      let subtitleBadgeHtml = "";
+      if (video.has_subtitles !== undefined) {
+        if (video.has_subtitles) {
+          const langsList = video.subtitle_languages && video.subtitle_languages.length > 0
+            ? video.subtitle_languages.slice(0, 3).join(', ')
+            : '확인됨';
+          subtitleBadgeHtml = `
+            <span class="subtitles-badge success" style="background-color: rgba(46, 125, 50, 0.9); color: #fff; padding: 3px 7px; font-size: 0.72rem; font-weight: bold; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; width: fit-content;">
+              <i class="fa-solid fa-circle-check" style="color: #81c784;"></i> 자막 추출 가능 (${langsList})
+            </span>
+          `;
+        } else {
+          subtitleBadgeHtml = `
+            <span class="subtitles-badge error" style="background-color: rgba(198, 40, 40, 0.9); color: #fff; padding: 3px 7px; font-size: 0.72rem; font-weight: bold; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; width: fit-content;">
+              <i class="fa-solid fa-circle-xmark" style="color: #e57373;"></i> 자막 없음 (제작 부적합)
+            </span>
+          `;
+        }
+      }
+
       card.innerHTML = `
         <a href="${video.url}" target="_blank" class="video-thumbnail-container" title="클릭 시 새 창에서 원본 유튜브 감상">
           <img src="${thumbnailSrc}" class="video-thumbnail" alt="${escapeHtml(video.title)}">
@@ -497,9 +514,12 @@ document.addEventListener('DOMContentLoaded', () => {
         </a>
         <div class="video-info">
           <a href="${video.url}" target="_blank" class="video-title" style="text-decoration: none; display: block;" title="새 창에서 원본 확인">${escapeHtml(video.title)}</a>
-          <div class="video-meta">
-            <span class="video-views"><i class="fa-solid fa-eye"></i> ${formatViews(video.view_count)}</span>
-            <span class="video-date"><i class="fa-solid fa-calendar-days"></i> ${video.published_date_text || video.published_date || "최근"}</span>
+          <div class="video-meta" style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; gap: 12px; color: var(--color-sub); font-size: 0.82rem;">
+              <span class="video-views"><i class="fa-solid fa-eye"></i> ${formatViews(video.view_count)}</span>
+              <span class="video-date"><i class="fa-solid fa-calendar-days"></i> ${video.published_date_text || video.published_date || "최근"}</span>
+            </div>
+            ${subtitleBadgeHtml}
           </div>
           <button class="btn-card-action" style="margin-top: 14px;">
             <i class="fa-solid fa-circle-check"></i> 이 영상 제작 대상으로 선택
@@ -564,9 +584,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     appendTerminalLine("🏠 로컬 파이썬 요리 엔진 준비 중...", "success");
 
-    // 로컬 저장 SSE API 개시
-    const localCookies = localStorage.getItem('youtube_cookies') || "";
-    const sseUrl = `/api/stream_generate_local?video_url=${encodeURIComponent(selectedVideoUrl)}&title=${encodeURIComponent(selectedVideoTitle)}&cookies=${encodeURIComponent(localCookies)}`;
+    // 자막 언어 체크박스 선택 수집
+    const checkedLangs = [];
+    document.querySelectorAll('.lang-checkbox:checked').forEach(cb => {
+      checkedLangs.push(cb.value);
+    });
+    if (checkedLangs.length === 0) {
+      alert("⚠️ 자막 수집 대상 언어를 적어도 하나 이상 선택해 주세요 (한국어, 일본어, 영어, 중국어 중 택일).");
+      resetDualButtons();
+      return;
+    }
+    const languagesStr = checkedLangs.join(',');
+
+    // 로컬 저장 SSE API 개시 (로컬 저장소의 Gemini API Key를 내부 통신으로 동적 연동)
+    const geminiKey = localStorage.getItem('gemini_api_key') || "";
+    const sseUrl = `/api/stream_generate_local?video_url=${encodeURIComponent(selectedVideoUrl)}&title=${encodeURIComponent(selectedVideoTitle)}&languages=${encodeURIComponent(languagesStr)}&gemini_api_key=${encodeURIComponent(geminiKey)}`;
     activeEventSource = new EventSource(sseUrl);
 
     activeEventSource.onmessage = (event) => {
@@ -578,13 +610,13 @@ document.addEventListener('DOMContentLoaded', () => {
         renderGeminiAnalysis(data.data);
       } else if (data.status === 'complete_local') {
         appendTerminalLine(data.message, "success");
-        appendTerminalLine(`📁 CapCut FCP 7 XML 복제 주소: ${data.xml_path}`, "success");
+        appendTerminalLine(`📁 최종 완성본 쇼츠 합본 비디오(MP4) 복제 주소: ${data.xml_path}`, "success");
         
         // 경로 클립보드 복사 배려 서비스
         navigator.clipboard.writeText(data.xml_path).then(() => {
-          alert(`🎉 [로컬 직접 저장 완료!]\n\nCapCut XML 파일이 내 컴퓨터 output/ 폴더에 직접 수립 완료되었습니다.\n\n경로: ${data.xml_path}\n\n(경로가 복사되었습니다! CapCut '가져오기' 주소창에 Ctrl+V 하세요!)`);
+          alert(`🎉 [로컬 직접 저장 완료!]\n\n최종 쇼츠 합본 비디오(MP4)와 로컬 자막(SRT)이 내 컴퓨터 output/ 폴더에 직접 수립 완료되었습니다.\n\n영상 경로: ${data.xml_path}\n\n(영상 경로가 복사되었습니다! 캡컷 [파일] -> [가져오기] 파일이름란에 Ctrl+V 하세요!)`);
         }).catch(() => {
-          alert(`🎉 [로컬 직접 저장 완료!]\n\nCapCut XML 파일이 내 컴퓨터 output/ 폴더에 수립되었습니다.\n\n경로: ${data.xml_path}`);
+          alert(`🎉 [로컬 직접 저장 완료!]\n\n최종 쇼츠 합본 비디오(MP4)와 로컬 자막(SRT)이 내 컴퓨터 output/ 폴더에 수립되었습니다.\n\n영상 경로: ${data.xml_path}`);
         });
 
         resetDualButtons();
@@ -634,6 +666,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const triggerUrl = `https://api.github.com/repos/${owner}/${name}/actions/workflows/remote_shorts_generator.yml/dispatches`;
     
+    // 자막 언어 체크박스 선택 수집
+    const checkedLangs = [];
+    document.querySelectorAll('.lang-checkbox:checked').forEach(cb => {
+      checkedLangs.push(cb.value);
+    });
+    if (checkedLangs.length === 0) {
+      alert("⚠️ 자막 수집 대상 언어를 적어도 하나 이상 선택해 주세요 (한국어, 일본어, 영어, 중국어 중 택일).");
+      resetDualButtons();
+      return;
+    }
+    const languagesStr = checkedLangs.join(',');
+
     try {
       const response = await fetch(triggerUrl, {
         method: 'POST',
@@ -647,7 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
           inputs: {
             video_url: selectedVideoUrl,
             gemini_api_key: gemini,
-            youtube_cookies: localStorage.getItem('youtube_cookies') || ""
+            languages: languagesStr
           }
         })
       });

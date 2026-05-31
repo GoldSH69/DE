@@ -3,12 +3,16 @@ import sys
 import json
 import re
 import yt_dlp
+from youtube_transcript_api import YouTubeTranscriptApi
 
 # 윈도우 콘솔 한글/이모지 출력 인코딩 오류(cp949) 방지 설정
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-if hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 from src.collector import collect_trends, load_existing_trends
 from src.analyzer import analyze_video_transcript
@@ -18,120 +22,126 @@ from src.bridge import create_fcp_xml, create_subtitles_srt
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
 PROJECT_XML_PATH = os.path.join(OUTPUT_DIR, "project_xml.xml")
 
-def fetch_and_clean_subtitles(video_url):
-    """yt-dlp를 사용하여 비디오의 자막을 다운로드하고, 순수 텍스트와 시간 정보만 추출합니다."""
-    print(f"[Main] Extracting subtitles for {video_url}...")
+def extract_youtube_video_id(url):
+    """유튜브 비디오 URL에서 11자리 비디오 ID를 추출합니다."""
+    pattern = r'(?:v=|\/shorts\/|\/embed\/|\/v\/|youtu\.be\/|\/u\/\w\/)([^#\&\?]{11})'
+    match = re.search(pattern, url)
+    if match:
+        return match.group(1)
     
-    # 자막 파일 저장을 위한 임시 경로
-    subtitle_temp_tmpl = os.path.join(OUTPUT_DIR, "temp_sub")
-    
-    ydl_opts = {
-        'skip_download': True,
-        'writesubtitles': True,
-        'writeautomaticsub': True,
-        'subtitleslangs': ['ko', 'ja', 'en'],  # 한국어 우선, 일본어, 영어 순
-        'outtmpl': subtitle_temp_tmpl,
-        'quiet': True
-    }
-    
-    # 지능형 쿠키(Cookies) 주입 엔진 가동 (유튜브 로봇 방지 우회)
-    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
-    if os.path.exists(cookies_path):
-        print(f"[Main] Detected custom cookies.txt -> Using cookie file: {cookies_path}")
-        ydl_opts['cookiefile'] = cookies_path
-    elif not os.environ.get("GITHUB_ACTIONS"):
-        # 깃허브 액션 환경이 아닌 로컬 PC 구동 시에만 브라우저로부터 로그인 쿠키 실시간 흡수
-        try:
-            print("[Main] Local environment detected. Auto-loading cookies from Chrome/Edge/Firefox...")
-            ydl_opts['cookiesfrombrowser'] = ('chrome', 'edge', 'firefox', 'brave', 'safari', 'opera')
-        except Exception as e:
-            print(f"[Main] Browser cookies load skipped: {e}")
+    # query string fallback
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(url)
+    if parsed.netloc in ('youtube.com', 'www.youtube.com', 'm.youtube.com'):
+        q = parse_qs(parsed.query)
+        if 'v' in q and len(q['v']) > 0:
+            return q['v'][0]
             
-    try:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(video_url, download=True)
-        except Exception as yde:
-            # 브라우저 잠김 등의 사유로 쿠키 로드 에러 시 쿠키 옵션 제거하고 재시도하는 안전 폴백
-            if 'cookiesfrombrowser' in ydl_opts:
-                print(f"[Main] Browser cookies db locked ({yde}). Retrying search without browser cookies...")
-                del ydl_opts['cookiesfrombrowser']
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(video_url, download=True)
-            else:
-                raise yde
-            
-        # 다운로드된 파일 탐색 (.vtt 또는 .srt 확장자)
-        sub_file = None
-        for file in os.listdir(OUTPUT_DIR):
-            if file.startswith("temp_sub.") and (file.endswith(".vtt") or file.endswith(".srt")):
-                sub_file = os.path.join(OUTPUT_DIR, file)
-                break
-                
-        if not sub_file:
-            print("[Main] Warning: No subtitle files (.vtt/.srt) found on YouTube. Generates a placeholder transcript.")
-            return "자막 정보가 존재하지 않아 오프닝과 핵심 위주의 하이라이트를 추출합니다."
+    if len(url.strip()) == 11:
+        return url.strip()
+        
+    return None
 
-        # 자막 파싱 및 텍스트 정제
-        cleaned_lines = []
-        with open(sub_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # VTT/SRT 타임코드 및 태그 정제 정규식
-        # 예: 00:01:23.450 --> 00:01:25.670
-        time_pattern = re.compile(r'(\d{2}:\d{2}:\d{2}[\.,]\d{3}) --> (\d{2}:\d{2}:\d{2}[\.,]\d{3})')
-        html_tag_pattern = re.compile(r'<[^>]+>')
+def format_seconds_to_time_str(seconds):
+    """초를 MM:SS 또는 HH:MM:SS 타임코드로 변환합니다."""
+    seconds = int(round(seconds))
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes:02d}:{secs:02d}"
+
+def fetch_and_clean_subtitles(video_url, languages_list=None):
+    """youtube-transcript-api를 사용하여 비디오의 자막을 100% 익명으로 다운로드하고 정제합니다."""
+    from youtube_transcript_api import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
+    
+    if languages_list is None:
+        languages_list = ['ko', 'ja', 'en']
         
-        current_time = "00:00"
-        lines = content.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.isdigit() or "WEBVTT" in line or "NOTE" in line:
-                continue
-                
-            match = time_pattern.search(line)
-            if match:
-                # 시작 시간만 파싱하여 타임라인 참조용으로 기록 (HH:MM:SS -> MM:SS 간소화)
-                full_time = match.group(1).split('.')[0].split(',')[0]
-                time_parts = full_time.split(':')
-                if time_parts[0] == "00":
-                    current_time = f"{time_parts[1]}:{time_parts[2]}"
-                else:
-                    current_time = full_time
-                continue
-                
-            # HTML 태그 제거 및 텍스트 가공
-            text_line = html_tag_pattern.sub('', line)
-            text_line = re.sub(r'&\w+;', '', text_line)  # &nbsp; 등 엔티티 제거
-            text_line = text_line.strip()
+    print(f"[Main] Extracting subtitles for {video_url} with languages: {languages_list}...")
+    
+    try:
+        video_id = extract_youtube_video_id(video_url)
+        if not video_id:
+            raise ValueError(f"유튜브 비디오 ID를 추출하지 못했습니다: {video_url}")
             
-            if text_line:
-                # 중복 줄 및 시스템 메세지 제외
-                fmt_line = f"[{current_time}] {text_line}"
-                if cleaned_lines and cleaned_lines[-1] == fmt_line:
-                    continue
-                cleaned_lines.append(fmt_line)
+        # 중국어 간체/번체 및 지역 코드 확장 매핑 (중국어 수집 극대화)
+        expanded_langs = []
+        for lang in languages_list:
+            lang = lang.strip().lower()
+            if lang == 'zh':
+                expanded_langs.extend(['zh', 'zh-Hans', 'zh-Hant', 'zh-HK', 'zh-TW', 'zh-SG', 'zh-CN'])
+            else:
+                expanded_langs.append(lang)
                 
-        # 임시 자막 파일 청소
+        # 100% 익명 API 호출 실행
+        api_instance = YouTubeTranscriptApi()
+        transcript_list_obj = api_instance.list(video_id)
+        
+        # 1단계: 선호하는 언어 매칭 시도
+        transcript = None
         try:
-            os.remove(sub_file)
-        except Exception:
-            pass
+            transcript = transcript_list_obj.find_transcript(expanded_langs)
+            print(f"[Main] Found preferred language transcript: {transcript.language_code}")
+        except NoTranscriptFound:
+            # 2단계: 선호 언어가 없다면, 실존하는 첫 번째 자막 트랙을 가져옵니다.
+            available_transcripts = list(transcript_list_obj)
+            if available_transcripts:
+                transcript = available_transcripts[0]
+                print(f"[Main] Preferred language not found. Falling back to available transcript: {transcript.language_code}")
+            else:
+                raise TranscriptsDisabled(video_id)
+                
+        transcript_list = transcript.fetch()
+        
+        cleaned_lines = []
+        for item in transcript_list:
+            # 딕셔너리 혹은 객체 양식 모두 완벽 호환되게 방어 설계
+            if isinstance(item, dict):
+                text = item.get('text', '')
+                start = item.get('start', 0.0)
+            else:
+                text = getattr(item, 'text', '')
+                start = getattr(item, 'start', 0.0)
+                
+            text = text.strip()
+            if not text:
+                continue
+                
+            # 개행 제거
+            text = text.replace('\n', ' ').replace('\r', ' ')
+            time_str = format_seconds_to_time_str(start)
+            fmt_line = f"[{time_str}] {text}"
             
-        final_transcript = "\n".join(cleaned_lines[:500]) # 컨텍스트 토큰 절약을 위해 상위 500줄만 파싱
+            cleaned_lines.append(fmt_line)
+            
+        if not cleaned_lines:
+            raise RuntimeError("추출된 자막 내용이 비어있습니다.")
+            
+        final_transcript = "\n".join(cleaned_lines[:500]) # 토큰 절약을 위해 상위 500줄만 파싱
         print(f"[Main] Subtitle parsing complete. Extracted {len(cleaned_lines)} blocks.")
         return final_transcript
         
+    except TranscriptsDisabled:
+        error_msg = "[❌ 유튜브 자막 비활성화] 이 비디오는 유튜브에서 자막 대본 기능이 완전히 비활성화되어 제공되지 않는 영상입니다. 대사나 음성 대화가 실존하고 자막이 열려 있는 다른 예능 영상을 선택해 주세요."
+        print(f"[Main] Subtitle extraction failed: {error_msg}")
+        raise RuntimeError(error_msg)
+    except VideoUnavailable:
+        error_msg = "[⚠️ 동영상 접근 불가] 유튜브 동영상 주소가 올바르지 않거나 비공개 혹은 삭제된 영상입니다."
+        print(f"[Main] Subtitle extraction failed: {error_msg}")
+        raise RuntimeError(error_msg)
     except Exception as e:
-        print(f"[Main] Subtitle extraction failed: {e}")
-        # 자막 수집에 실패한 경우 크래시 내는 대신 자막 수집 실패 코드를 전달해 제목 기반 기획으로 자동 폴백
-        print("[Main] Warning: Subtitle extraction failed. Falling back to Title-based AI planning.")
-        return f"__SUBTITLE_EXTRACTION_FAILED_429__: {str(e)}"
+        err_str = str(e)
+        if "429" in err_str or "Too Many Requests" in err_str:
+            error_msg = f"[🚫 유튜브 트래픽 차단 (429)] 로컬 PC의 IP 주소가 유튜브로부터 일시적인 요청 과부하로 차단(429)되었습니다. 이 경우 대시보드 우측의 [GitHub Actions 원격 제작] 버튼을 구동해 주시기 바랍니다."
+        else:
+            error_msg = f"[⚙️ 로컬 파이썬 시스템 오류] 유튜브 자막(대본) 추출 실패 (원인: {err_str})"
+        print(f"[Main] Subtitle extraction failed: {error_msg}")
+        raise RuntimeError(error_msg)
 
-def run_main_pipeline(specific_url=None):
+def run_main_pipeline(specific_url=None, languages_str="ko,ja,en"):
     """Dopamine Explorer v2 올인원 영상 자동화 파이프라인을 기동합니다."""
     print("==================================================================")
     print("🚀 Dopamine Explorer v2 (Automation & CapCut Bridge) Pipeline Start")
@@ -158,7 +168,8 @@ def run_main_pipeline(specific_url=None):
         print(f"[Main] Target selected from Trends DB: '{target_video['title']}' (Views: {target_video.get('view_count', 0)})")
         
     # 2단계: 자막 추출
-    transcript = fetch_and_clean_subtitles(target_video["url"])
+    languages_list = languages_str.split(',') if languages_str else ['ko', 'ja', 'en']
+    transcript = fetch_and_clean_subtitles(target_video["url"], languages_list=languages_list)
     
     # 3단계: Gemini AI 분석 및 기획안 생성
     analysis_result = analyze_video_transcript(transcript, target_video["title"])
@@ -197,8 +208,9 @@ def run_main_pipeline(specific_url=None):
     print("👉 [1] CapCut Desktop을 실행하고 '가져오기(Import) -> XML'을 눌러 XML 파일을 불러오세요!")
     print("👉 [2] 자막은 CapCut '텍스트(Text) -> 로컬 자막(Local Captions) -> 가져오기(Import)'에서 'subtitles_ko.srt'를 불러와 타임라인에 드래그하세요!")
     print("==================================================================")
-
+ 
 if __name__ == "__main__":
     # 실행 시 인자로 유튜브 URL을 전달하면 해당 비디오로 바로 기획 및 브릿지 수행
     url_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    run_main_pipeline(url_arg)
+    langs_arg = sys.argv[2] if len(sys.argv) > 2 else "ko,ja,en"
+    run_main_pipeline(url_arg, languages_str=langs_arg)

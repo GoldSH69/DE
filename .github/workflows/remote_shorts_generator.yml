@@ -19,9 +19,10 @@ on:
         options:
           - ja-JP-NanamiNeural
           - ja-JP-KeitaNeural
-      youtube_cookies:
-        description: 'YouTube Cookies (Netscape format) to bypass bot check'
+      languages:
+        description: '수집할 자막 언어 우선순위 리스트 (쉼표 구분)'
         required: false
+        default: 'ko,ja,en'
         type: string
 
 jobs:
@@ -56,13 +57,8 @@ jobs:
         # 1. 아웃풋 디렉토리 생성
         mkdir -p output/video_cuts
         mkdir -p output/tts_voices
-        # 만약 사용자 쿠키 입력값이 전달되었다면 output/cookies.txt 파일 기입
-        if [ ! -z "${{ inputs.youtube_cookies }}" ]; then
-          echo "${{ inputs.youtube_cookies }}" > output/cookies.txt
-          echo "[Workflow] Custom cookies.txt written successfully to output/cookies.txt"
-        fi
-        # 2. 메인 파이프라인 기동 (첫 번째 인자로 비디오 URL 전달)
-        python -m src.main "${{ inputs.video_url }}"
+        # 2. 메인 파이프라인 기동 (첫 번째 인자로 비디오 URL, 두 번째 인자로 언어 리스트 전달)
+        python -m src.main "${{ inputs.video_url }}" "${{ inputs.languages }}"
 
     - name: Upload Output Artifact (1-Day Retention)
       uses: actions/upload-artifact@v4

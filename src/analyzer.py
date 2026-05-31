@@ -25,35 +25,11 @@ def analyze_video_transcript(transcript_text, video_title="알 수 없는 동영
     if not api_key:
         raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다. 대시보드 우측 상단의 톱니바퀴 [연동 키 설정] 버튼을 눌러 Gemini API Key를 입력하고 저장해 주세요. (로컬 구동의 경우 실행하는 터미널 세션에 GEMINI_API_KEY 환경 변수가 제공되어야 합니다.)")
 
-    # 자막 수집 실패 여부 확인
-    is_subtitle_failed = transcript_text.startswith("__SUBTITLE_EXTRACTION_FAILED_429__")
-    error_reason = transcript_text.split(":", 1)[1] if is_subtitle_failed else ""
-
     try:
         # google-genai 최신 클라이언트 생성
         client = genai.Client(api_key=api_key)
         
-        if is_subtitle_failed:
-            print(f"[Analyzer] Subtitles were blocked by YouTube ({error_reason}). Generating planning purely based on Video Title.")
-            prompt = f"""
-당신은 전 세계 인기 예능 콘텐츠를 발굴하고 100만 조회수를 기록할 쇼츠(Shorts)를 기획하는 전문 크리에이터이자 PD입니다.
-현재 유튜브의 로봇 탐지 차단(429 블록 등)으로 인해 동영상의 자막 대본을 수집하지 못했습니다.
-따라서, 제공되는 **동영상 제목** 정보만을 바탕으로 시청자를 단 3초 만에 몰입시킬 수 있는 재미있고 자극적인 60초 미만의 쇼츠 기획안을 추정하여 설계해 주십시오.
-
-[동영상 제목]
-{video_title}
-
-[요구사항 및 가이드라인]
-1. **자막이 없는 상태에서의 구간 제안**: 자막 대본이 없으므로, 영상의 인트로(예: 00:00 ~ 00:15) 및 핵심 웃음 포인트나 반전이 있을 만한 일반적인 중간/후반부 구간(예: 00:40 ~ 00:55)을 2~3개 골라 총합 **60초 미만**이 되도록 타임코드를 지정해 주십시오. (영상 길이를 알 수 없으므로 무난하게 전반부와 중반부의 10~20초대 구간을 지정해 주시면 좋습니다.)
-2. **일본어 나레이션 대본 ('tts_text')**: 나중에 일본어 성우 TTS(edge-tts)로 녹음될 문장입니다. 번역기 번역이 아닌, 네이티브 일본인들이 쇼츠나 틱톡에서 쓰는 자극적이고 생동감 넘치는 예능 톤으로 작성해 주십시오. (예: "とんでもない事態が発生しました！", "これは予想外すぎるw")
-3. **자막 텍스트 ('caption')**: 나중에 캡컷에서 한글 폰트로 편집할 화면 한글 자막입니다. 상황을 극대화하여 묘사하는 예능 자막 풍으로 간결하게 작성해 주십시오. (예: "역대급 방송 사고 발생!", "모두가 경악한 이유")
-4. **경고문구 포함**: 기획의 'rationale'(기획 사유) 부분의 맨 앞에 반드시 아래 경고 문구를 포함시켜 출력해야 합니다:
-   "[⚠️ 유튜브 자막 수집 차단(원인: {error_reason})으로 인해 영상 제목 기반으로 AI 쇼츠 기획을 임시 수행했습니다. 정밀 자막 기획을 원하시면 설정을 통해 유튜브 쿠키를 등록해 주세요.]"
-
-반드시 JSON Schema 구조에 엄격히 맞추어 응답을 반환하십시오.
-"""
-        else:
-            prompt = f"""
+        prompt = f"""
 당신은 전 세계 인기 예능 콘텐츠를 발굴하고 100만 조회수를 기록할 쇼츠(Shorts)를 기획하는 전문 크리에이터이자 PD입니다.
 아래 제공되는 유튜브 롱폼 동영상의 자막 대본(과 타임라인 정보)을 분석하여, **시청자를 단 3초 만에 몰입시킬 수 있는 가장 자극적이고, 반전이 있거나, 웃음이 터지는 60초 미만의 핵심 장면들**을 엄선해 주십시오.
 

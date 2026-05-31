@@ -29,7 +29,7 @@ def time_str_to_seconds(time_str):
         raise ValueError(f"지원하지 않는 타임코드 형식입니다: {time_str}")
 
 def download_youtube_video(video_url, output_filename="origin_video.mp4"):
-    """yt-dlp를 사용하여 고화질 비디오를 다운로드합니다 (이미 존재하면 다운로드 건너뜀)."""
+    """yt-dlp를 사용하여 고화질 비디오를 100% 익명으로 다운로드합니다 (이미 존재하면 다운로드 건너뜀)."""
     ensure_directories()
     target_path = os.path.join(OUTPUT_DIR, output_filename)
     
@@ -37,7 +37,7 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
         print(f"[Processor] Found existing video: {target_path}. Skipping download.")
         return target_path
 
-    print(f"[Processor] Downloading video from {video_url}...")
+    print(f"[Processor] Downloading video from {video_url} anonymously...")
     # 비디오 포맷은 mp4 중 고화질 다운로드
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -46,32 +46,9 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
         'merge_output_format': 'mp4',
     }
     
-    # 지능형 쿠키(Cookies) 주입 엔진 가동 (유튜브 로봇 방지 우회)
-    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
-    if os.path.exists(cookies_path):
-        print(f"[Processor] Detected custom cookies.txt -> Using cookie file: {cookies_path}")
-        ydl_opts['cookiefile'] = cookies_path
-    elif not os.environ.get("GITHUB_ACTIONS"):
-        # 깃허브 액션 환경이 아닌 로컬 PC 구동 시에만 브라우저로부터 로그인 쿠키 실시간 흡수
-        try:
-            print("[Processor] Local environment detected. Auto-loading cookies from Chrome/Edge/Firefox...")
-            ydl_opts['cookiesfrombrowser'] = ('chrome', 'edge', 'firefox', 'brave', 'safari', 'opera')
-        except Exception as e:
-            print(f"[Processor] Browser cookies load skipped: {e}")
-            
     try:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-        except Exception as yde:
-            # 브라우저 잠김 등의 사유로 쿠키 로드 에러 시 쿠키 옵션 제거하고 재시도하는 안전 폴백
-            if 'cookiesfrombrowser' in ydl_opts:
-                print(f"[Processor] Browser cookies db locked ({yde}). Retrying download without browser cookies...")
-                del ydl_opts['cookiesfrombrowser']
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([video_url])
-            else:
-                raise yde
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
         print(f"[Processor] Download completed: {target_path}")
         return target_path
     except Exception as e:
@@ -80,7 +57,6 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
         print("[Processor] Retrying with generic best format...")
         try:
             ydl_opts['format'] = 'best'
-            # cookiesfrombrowser가 예전에 실패했다면 옵션에서 제거된 상태
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
             return target_path
@@ -88,9 +64,14 @@ def download_youtube_video(video_url, output_filename="origin_video.mp4"):
             print(f"[Processor] Critical download failure: {retry_e}")
             raise retry_e
 
-def cut_video_clips(origin_video_path, selected_scenes):
+def cut_video_clips(origin_video_path, selected_scenes, video_cuts_dir=None):
     """원본 동영상 파일에서 지정된 타임라인 구간들을 MoviePy로 잘라냅니다."""
-    ensure_directories()
+    if video_cuts_dir is None:
+        video_cuts_dir = VIDEO_CUTS_DIR
+        ensure_directories()
+    else:
+        os.makedirs(video_cuts_dir, exist_ok=True)
+        
     print(f"[Processor] Opening original video: {origin_video_path}")
     
     cut_files = []
@@ -106,7 +87,7 @@ def cut_video_clips(origin_video_path, selected_scenes):
             start_sec = time_str_to_seconds(start_str)
             end_sec = time_str_to_seconds(end_str)
             
-            output_clip_path = os.path.join(VIDEO_CUTS_DIR, f"cut_{idx + 1}.mp4")
+            output_clip_path = os.path.join(video_cuts_dir, f"cut_{idx + 1}.mp4")
             print(f"[Processor] Trimming clip {idx + 1}: {start_str} ({start_sec}s) ~ {end_str} ({end_sec}s)...")
             
             # MoviePy 2.x와 1.x 하위 호환 처리
@@ -143,9 +124,14 @@ async def synthesize_single_tts(text, output_path, voice="ja-JP-NanamiNeural"):
         print(f"[Processor] TTS Synthesis failed for '{text[:15]}...': {e}")
         raise e
 
-async def generate_tts_voices(selected_scenes, voice="ja-JP-NanamiNeural"):
+async def generate_tts_voices(selected_scenes, voice="ja-JP-NanamiNeural", tts_voices_dir=None):
     """선택된 씬들의 일본어 대본(tts_text)을 edge-tts로 비동기 순차 합성합니다."""
-    ensure_directories()
+    if tts_voices_dir is None:
+        tts_voices_dir = TTS_VOICES_DIR
+        ensure_directories()
+    else:
+        os.makedirs(tts_voices_dir, exist_ok=True)
+        
     print(f"[Processor] Starting neural TTS synthesis ({voice}) with safety delay...")
     
     tts_files = []
@@ -156,7 +142,7 @@ async def generate_tts_voices(selected_scenes, voice="ja-JP-NanamiNeural"):
             print(f"[Processor] Warning: Empty tts_text for scene {idx + 1}. Skipping TTS.")
             continue
             
-        output_voice_path = os.path.join(TTS_VOICES_DIR, f"voice_{idx + 1}.mp3")
+        output_voice_path = os.path.join(tts_voices_dir, f"voice_{idx + 1}.mp3")
         
         # 실제 합성 실행
         await synthesize_single_tts(tts_text, output_voice_path, voice)
@@ -169,34 +155,125 @@ async def generate_tts_voices(selected_scenes, voice="ja-JP-NanamiNeural"):
     print(f"[Processor] All {len(tts_files)} TTS voices synthesized successfully.")
     return tts_files
 
-def run_processing_pipeline(video_url, selected_scenes, voice="ja-JP-NanamiNeural"):
+def run_processing_pipeline(video_url, selected_scenes, voice="ja-JP-NanamiNeural", project_dir=None):
     """동영상 다운로드, 컷 편집, TTS 합성을 총괄 실행하는 동기식 브릿지 래퍼 함수입니다."""
-    # 1. 비디오 다운로드
-    video_filename = f"origin_{selected_scenes[0].get('start_time').replace(':', '')}.mp4" if selected_scenes else "origin_video.mp4"
+    from src.main import extract_youtube_video_id
+    
+    # 1. 비디오 다운로드 (루트 공통 캐싱 적용으로 대역폭 극적 보존)
+    video_id = extract_youtube_video_id(video_url) or "video"
+    video_filename = f"origin_{video_id}.mp4"
     origin_video_path = download_youtube_video(video_url, output_filename=video_filename)
     
+    # 프로젝트 고유 경로 오버라이드 계산
+    if project_dir:
+        video_cuts_dir = os.path.join(project_dir, "video_cuts")
+        tts_voices_dir = os.path.join(project_dir, "tts_voices")
+    else:
+        video_cuts_dir = VIDEO_CUTS_DIR
+        tts_voices_dir = TTS_VOICES_DIR
+        ensure_directories()
+        
     # 2. 컷 편집
-    cut_files = cut_video_clips(origin_video_path, selected_scenes)
+    cut_files = cut_video_clips(origin_video_path, selected_scenes, video_cuts_dir=video_cuts_dir)
     
     # 3. 비동기 TTS 실행 (동기 함수 내에서 비동기 이벤트 루프 구동)
     try:
-        tts_files = asyncio.run(generate_tts_voices(selected_scenes, voice))
+        tts_files = asyncio.run(generate_tts_voices(selected_scenes, voice, tts_voices_dir=tts_voices_dir))
     except RuntimeError:
         # 이미 이벤트 루프가 작동 중인 특수 스레드/서버 환경 대처
         try:
             loop = asyncio.get_event_loop()
-            tts_files = loop.run_until_complete(generate_tts_voices(selected_scenes, voice))
+            tts_files = loop.run_until_complete(generate_tts_voices(selected_scenes, voice, tts_voices_dir=tts_voices_dir))
         except Exception as inner_e:
             print(f"[Processor] Event loop fallback failed: {inner_e}")
             raise inner_e
         
     return cut_files, tts_files
 
+def merge_shorts_video(cut_files, tts_files, selected_scenes, output_merged_path, voice_delay=0.5):
+    """MoviePy를 사용하여 자른 영상 클립들과 합성된 TTS 나레이션을 싱크에 맞춰 하나의 완성본 MP4 비디오로 합칩니다."""
+    from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip
+    import os
+    
+    print(f"[Processor] Merging {len(cut_files)} clips and {len(tts_files)} voices into a single short...")
+    
+    clips = []
+    try:
+        for idx in range(len(cut_files)):
+            video_path = cut_files[idx]
+            audio_path = tts_files[idx] if idx < len(tts_files) else None
+            
+            # 1. 비디오 클립 로드
+            v_clip = VideoFileClip(video_path)
+            v_dur = v_clip.duration
+            
+            # 2. 오디오 설정
+            original_audio = v_clip.audio
+            
+            if audio_path and os.path.exists(audio_path):
+                # 3. TTS 나레이션 오디오 로드
+                tts_audio = AudioFileClip(audio_path)
+                a_dur = tts_audio.duration
+                
+                # 첫 번째 조각인 경우 후킹을 위해 나레이션 목소리 시작을 voice_delay(0.5초) 만큼 딜레이
+                if idx == 0:
+                    delayed_tts = tts_audio.set_start(voice_delay)
+                    # 비디오 길이가 나레이션보다 짧으면 오디오가 잘리지 않도록 비디오 멈춤(정지화면) 대기 연장
+                    actual_duration = max(v_dur, a_dur + voice_delay)
+                else:
+                    delayed_tts = tts_audio.set_start(0.0)
+                    actual_duration = max(v_dur, a_dur)
+                
+                # 오디오 채널 합성: 원본 영상 배경음(약간 줄임) + AI 성우 나레이션
+                # 원본 음량은 예능 배경음 역할을 하도록 0.35배로 조율, 성우 목소리는 1.0배로 돋보이게 설정
+                background_audio = original_audio.multiply_volume(0.35) if original_audio else None
+                
+                audio_tracks = []
+                if background_audio:
+                    audio_tracks.append(background_audio)
+                audio_tracks.append(delayed_tts)
+                
+                mixed_audio = CompositeAudioClip(audio_tracks)
+                
+                # 비디오 길이가 나레이션보다 짧은 경우, 마지막 프레임 정지 상태로 영상 길이 연장
+                if actual_duration > v_dur:
+                    # 마지막 프레임을 정지 화면으로 연장
+                    extended_v_clip = v_clip.with_duration(actual_duration) if hasattr(v_clip, 'with_duration') else v_clip.set_duration(actual_duration)
+                    v_clip_final = extended_v_clip.with_audio(mixed_audio) if hasattr(extended_v_clip, 'with_audio') else extended_v_clip.set_audio(mixed_audio)
+                else:
+                    v_clip_final = v_clip.with_audio(mixed_audio) if hasattr(v_clip, 'with_audio') else v_clip.set_audio(mixed_audio)
+            else:
+                # TTS가 없거나 매칭 실패 시 원본 비디오 그대로 사용
+                v_clip_final = v_clip
+                
+            clips.append(v_clip_final)
+            
+        # 4. 모든 시퀀스 클립들을 하나로 이어 붙이기
+        final_clip = concatenate_videoclips(clips, method="compose")
+        
+        # 5. 완성본 비디오를 고해상도 MP4 파일로 내보내기 (렌더링)
+        final_clip.write_videofile(
+            output_merged_path,
+            codec="libx264",
+            audio_codec="aac",
+            temp_audiofile=os.path.join(os.path.dirname(output_merged_path), "temp-audio.m4a"),
+            remove_temp=True,
+            logger=None
+        )
+        
+        # 리소스 해제
+        final_clip.close()
+        for c in clips:
+            c.close()
+            
+        print(f"[Processor] Unified Shorts Video created successfully -> {output_merged_path}")
+        return output_merged_path
+        
+    except Exception as e:
+        print(f"[Processor] Failed to merge shorts video: {e}")
+        import traceback
+        traceback.print_exc()
+        raise e
+
 if __name__ == "__main__":
-    # 간단한 작동 모듈 테스트
-    test_scenes = [
-        {"start_time": "00:05", "end_time": "00:10", "tts_text": "こんにちは。テスト音声です。", "caption": "안녕하세요. 테스트 음성입니다."}
-    ]
-    # 실제 구동 테스트를 원하면 아래 주석 해제 후 실행
-    # run_processing_pipeline("https://www.youtube.com/watch?v=dQw4w9WgXcQ", test_scenes)
     pass

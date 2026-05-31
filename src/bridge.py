@@ -20,12 +20,12 @@ def get_media_duration(file_path, is_video=True):
         return 5.0
 
 def filepath_to_url(abs_path):
-    """로컬 파일의 절대 경로를 FCP 7 XML에서 요구하는 file://localhost/ 형주 URL로 변환합니다."""
+    """로컬 파일의 절대 경로를 FCP 7 XML에서 요구하는 표준 로컬 URL로 변환합니다."""
     # 윈도우 경로의 역슬래시를 슬래시로 변경하고 드라이브 문자를 포맷팅
     normalized = abs_path.replace('\\', '/')
     if not normalized.startswith('/'):
         normalized = '/' + normalized
-    return f"file://localhost{normalized}"
+    return f"file://{normalized}"
 
 def create_fcp_xml(video_cuts, tts_voices, output_xml_path, fps=30):
     """비디오 컷 클립과 매칭되는 TTS 나레이션 음성 파일들을 정밀하게 배치한 Final Cut Pro 7 XML을 동적으로 생성합니다."""

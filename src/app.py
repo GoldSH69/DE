@@ -5,10 +5,13 @@ import requests
 from flask import Flask, render_template, request, jsonify, Response
 
 # 윈도우 cp949 인코딩 방지
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-if hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 # 프로젝트 임포트 경로 확보
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -151,7 +154,8 @@ def api_stream_generate_local():
     """로컬 1번 상황: 로컬 컴퓨터 내에서 직접 컷팅, TTS 및 FCP XML 즉시 실시간 복원"""
     video_url = request.args.get('video_url', '')
     title = request.args.get('title', '알 수 없는 비디오')
-    cookies_content = request.args.get('cookies', '')
+    languages_str = request.args.get('languages', 'ko,ja,en')
+    gemini_api_key = request.args.get('gemini_api_key', '')
     
     if not video_url:
         def err_stream():
@@ -160,27 +164,31 @@ def api_stream_generate_local():
         
     def log_event_generator_local():
         try:
+            # 전달받은 Gemini API Key가 있다면 시스템 환경변수에 런타임 주입
+            if gemini_api_key:
+                os.environ["GEMINI_API_KEY"] = gemini_api_key
+                
             # 1. 외부 서버 배포 시 라이브러리 부재로 인한 충돌을 피하기 위해 런타임에 다이내믹 임포트(Dynamic Import) 수행!
             yield f"data: {json.dumps({'status': 'progress', 'message': '⚙️ 로컬 파이썬 엔진 라이브러리 동적 로드 중...'})}\n\n"
             
             from src.analyzer import analyze_video_transcript
             from src.processor import run_processing_pipeline
             from src.bridge import create_fcp_xml, create_subtitles_srt
-            from src.main import fetch_and_clean_subtitles
+            from src.main import fetch_and_clean_subtitles, extract_youtube_video_id
+            from datetime import datetime
             
-            # 사용자로부터 전달된 쿠키 텍스트가 있다면 output/cookies.txt 파일 생성
-            if cookies_content:
-                try:
-                    os.makedirs(OUTPUT_DIR, exist_ok=True)
-                    cookies_path = os.path.join(OUTPUT_DIR, "cookies.txt")
-                    with open(cookies_path, 'w', encoding='utf-8') as f:
-                        f.write(cookies_content)
-                    yield f"data: {json.dumps({'status': 'progress', 'message': '🍪 사용자 유튜브 인증 쿠키 파일 등록 완료'})}\n\n"
-                except Exception as ce:
-                    yield f"data: {json.dumps({'status': 'progress', 'message': f'⚠️ 쿠키 설정 저장 실패 (무시하고 계속 진행): {str(ce)}'})}\n\n"
+            # 고유 프로젝트 디렉토리 경로 구성 (타임스탬프 기반)
+            video_id = extract_youtube_video_id(video_url) or "unknown"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            project_name = f"project_{video_id}_{timestamp}"
+            project_dir = os.path.join(OUTPUT_DIR, project_name)
+            os.makedirs(project_dir, exist_ok=True)
+            
+            project_xml_path = os.path.join(project_dir, "project_xml.xml")
+            project_srt_path = os.path.join(project_dir, "subtitles_ko.srt")
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '🚀 1단계: 유튜브 동영상 자막(SRT/VTT) 추출 중...'})}\n\n"
-            transcript = fetch_and_clean_subtitles(video_url)
+            transcript = fetch_and_clean_subtitles(video_url, languages_list=languages_str.split(','))
             yield f"data: {json.dumps({'status': 'progress', 'message': '✅ 자막 스캔 성공!'})}\n\n"
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '💡 2단계: Gemini API 연동 60초 하이라이트 대본 기획 및 번역 추출 중...'})}\n\n"
@@ -193,29 +201,51 @@ def api_stream_generate_local():
             cut_files, tts_files = run_processing_pipeline(
                 video_url,
                 analysis.get("selected_scenes", []),
-                voice="ja-JP-NanamiNeural"
+                voice="ja-JP-NanamiNeural",
+                project_dir=project_dir
             )
             yield f"data: {json.dumps({'status': 'progress', 'message': f'✅ 비디오 컷팅 ({len(cut_files)}개 조각) 및 edge-tts 나레이션 매칭 합성 완료'})}\n\n"
             
-            yield f"data: {json.dumps({'status': 'progress', 'message': '🔗 4단계: 캡컷(CapCut) 직접 연동용 FCP 7 XML 뼈대 구성 및 스마트 동기화 정렬 중...'})}\n\n"
-            create_fcp_xml(cut_files, tts_files, PROJECT_XML_PATH, fps=30)
-            
+            yield f"data: {json.dumps({'status': 'progress', 'message': '🔗 4단계: 캡컷(CapCut) 로컬 자막용 SRT 한글 번역 자막 파일 생성 중...'})}\n\n"
             # SRT 자막 파일 생성
-            PROJECT_SRT_PATH = os.path.join(OUTPUT_DIR, "subtitles_ko.srt")
-            create_subtitles_srt(analysis.get("selected_scenes", []), cut_files, tts_files, PROJECT_SRT_PATH)
+            create_subtitles_srt(analysis.get("selected_scenes", []), cut_files, tts_files, project_srt_path)
             
-            yield f"data: {json.dumps({'status': 'progress', 'message': '✅ FCP 7 XML 및 SRT 자막 생성 완료!'})}\n\n"
+            # FCP XML도 보존 생성 (호환용)
+            create_fcp_xml(cut_files, tts_files, project_xml_path, fps=30)
+            yield f"data: {json.dumps({'status': 'progress', 'message': '✅ SRT 자막 파일 및 보존용 FCP XML 생성 완료'})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'progress', 'message': '🎬 5단계: 영상 조각들과 AI 일본어 나레이션을 믹싱하여 하나의 고화질 완성본 MP4 생성 중 (0.5초 무음 후킹 기법 적용)...'})}\n\n"
+            from src.processor import merge_shorts_video
+            final_video_path = os.path.join(project_dir, "final_shorts.mp4")
+            merge_shorts_video(cut_files, tts_files, analysis.get("selected_scenes", []), final_video_path)
+            
+            # 사용자의 편의를 위해 루트 output 폴더에도 타임스탬프 고유 파일명으로 복사 저장!
+            import shutil
+            root_final_video_path = os.path.join(OUTPUT_DIR, f"shorts_{timestamp}.mp4")
+            root_final_srt_path = os.path.join(OUTPUT_DIR, f"subtitles_{timestamp}.srt")
+            shutil.copy(final_video_path, root_final_video_path)
+            shutil.copy(project_srt_path, root_final_srt_path)
+            
+            yield f"data: {json.dumps({'status': 'progress', 'message': '✅ 고화질 합본 비디오 믹싱 및 SRT 최종 배포 완료!'})}\n\n"
             
             # 최종 마침표
-            yield f"data: {json.dumps({'status': 'complete_local', 'message': '🎉 [로컬 직접 저장 완료] 결과 파일들이 내 컴퓨터 output/ 폴더에 직접 수립되었습니다!', 'xml_path': PROJECT_XML_PATH})}\n\n"
+            yield f"data: {json.dumps({
+                'status': 'complete_local', 
+                'message': f'🎉 [로컬 직접 저장 완료] 최종 쇼츠 합본({os.path.basename(root_final_video_path)})과 한글 자막({os.path.basename(root_final_srt_path)})이 내 컴퓨터 output/ 폴더에 직접 수립되었습니다!', 
+                'xml_path': root_final_video_path
+            })}\n\n"
             
         except ImportError as ie:
+            import traceback
+            traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': f'로컬 구동에 필요한 라이브러리(moviepy, edge-tts 등)가 서버에 미설치 상태입니다. 외부 인터넷 구동 상태이시라면 우측의 [GitHub Actions] 버튼을 사용해 주세요.'})}\n\n"
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': f'로컬 구동 중 예외 발생: {str(e)}'})}\n\n"
             
     return Response(log_event_generator_local(), mimetype="text/event-stream")
 
 if __name__ == '__main__':
-    # Flask 로컬 서버 기동
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Flask 로컬 서버 기동 (안정성을 위해 debug=False, threaded=True 적용)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
