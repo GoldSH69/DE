@@ -117,6 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return (match && match[2].length === 11) ? match[2] : null;
   }
   const invidiousInstances = [
+    'https://inv.thepixora.com',
+    'https://yt.chocolatemoo53.com',
     'https://yewtu.be',
     'https://invidious.projectsegfau.lt',
     'https://invidious.privacydev.net',
