@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputGeminiKey = document.getElementById('input-gemini-key');
   const inputRepoOwner = document.getElementById('input-repo-owner');
   const inputRepoName = document.getElementById('input-repo-name');
+  const recentSearchesContainer = document.getElementById('recent-searches-container');
 
   let selectedVideoUrl = "";
   let selectedVideoTitle = "";
