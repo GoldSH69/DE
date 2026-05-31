@@ -17,8 +17,9 @@ from src.collector import search_videos_by_keywords
 
 app = Flask(
     __name__,
-    template_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')),
-    static_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    static_url_path="",
+    static_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')),
+    template_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 )
 
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
