@@ -83,8 +83,8 @@ def fetch_videos_from_channel(channel_url, limit=5):
         print(f"[Collector] Error fetching from {channel_url}: {e}")
     return videos
 
-def search_videos_by_keywords(keywords, limit_per_keyword=3):
-    """키워드 검색을 통해 고성과 유튜브 영상을 발굴합니다 (API Key 불필요)."""
+def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week"):
+    """키워드 검색을 통해 특정 기간(하루, 1주, 한달) 동안의 고성과 영상을 수집 및 조회수 순 정렬합니다."""
     videos = []
     ydl_opts = {
         'quiet': True,
@@ -92,9 +92,19 @@ def search_videos_by_keywords(keywords, limit_per_keyword=3):
         'skip_download': True,
     }
     
+    # 기간 필터 키워드 매핑
+    period_suffix = ""
+    if period == "today":
+        period_suffix = " \"today\""
+    elif period == "this_week":
+        period_suffix = " \"this week\""
+    elif period == "this_month":
+        period_suffix = " \"this month\""
+        
     for kw in keywords:
-        search_query = f"ytsearch{limit_per_keyword}:{kw}"
-        print(f"[Collector] Searching YouTube for keyword: {kw}")
+        # 검색어 뒤에 기간 한정 유튜브 지시어 믹싱
+        search_query = f"ytsearch{limit_per_keyword}:{kw}{period_suffix}"
+        print(f"[Collector] Live searching YouTube: {search_query}")
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
@@ -104,7 +114,7 @@ def search_videos_by_keywords(keywords, limit_per_keyword=3):
                             continue
                         
                         duration = entry.get('duration')
-                        if duration and duration < 120:  # 2분 미만 영상은 스킵
+                        if duration and duration < 120:  # 2분 미만은 쇼츠 소재로 부적합하므로 자동 필터링 스킵
                             continue
                             
                         video_id = entry.get('id')
@@ -119,6 +129,9 @@ def search_videos_by_keywords(keywords, limit_per_keyword=3):
                         })
         except Exception as e:
             print(f"[Collector] Error searching keyword '{kw}': {e}")
+            
+    # 전체 수집 후 조회수 높은 순으로 최종 내림차순 정렬
+    videos.sort(key=lambda x: x.get('view_count', 0), reverse=True)
     return videos
 
 def collect_trends(channels=None, keywords=None, limit_per_source=5):

@@ -1,4 +1,3 @@
+flask
+requests
 yt-dlp
-moviepy
-google-genai
-edge-tts
