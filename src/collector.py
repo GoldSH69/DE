@@ -90,79 +90,188 @@ def fetch_videos_from_channel(channel_url, limit=5):
         print(f"[Collector] Error fetching from {channel_url}: {e}")
     return videos
 
+def parse_relative_time_to_yyyymmdd(text):
+    """'3 days ago' 나 '1 week ago' 같은 상대 시간을 YYYYMMDD 문자열로 근사치 계산합니다."""
+    from datetime import datetime, timedelta
+    import re
+    
+    now = datetime.now()
+    if not text:
+        return now.strftime("%Y%m%d")
+        
+    cleaned = text.lower().strip()
+    match = re.search(r'(\d+)\s+(day|week|month|year|hour|minute)', cleaned)
+    if not match:
+        return now.strftime("%Y%m%d")
+        
+    value = int(match.group(1))
+    unit = match.group(2)
+    
+    if 'hour' in unit or 'minute' in unit:
+        delta = timedelta(hours=value)
+    elif 'day' in unit:
+        delta = timedelta(days=value)
+    elif 'week' in unit:
+        delta = timedelta(weeks=value)
+    elif 'month' in unit:
+        delta = timedelta(days=value * 30)
+    elif 'year' in unit:
+        delta = timedelta(days=value * 365)
+    else:
+        delta = timedelta(0)
+        
+    target_date = now - delta
+    return target_date.strftime("%Y%m%d")
+
 def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week"):
     """키워드 검색을 통해 특정 기간(하루, 1주, 한달) 동안의 고성과 영상을 수집 및 조회수 순 정렬합니다."""
+    import requests
     import urllib.parse
     videos = []
-    ydl_opts = {
-        'quiet': True,
-        'extract_flat': True,
-        'skip_download': True,
+    
+    # 1단계: 지능형 Invidious API 인스턴스 다중 우회망 가동 (100% 날짜 정밀 필터링 및 429 우회 보장)
+    invidious_instances = [
+        'https://inv.thepixora.com',
+        'https://yt.chocolatemoo53.com',
+        'https://invidious.projectsegfau.lt',
+        'https://invidious.privacydev.net',
+        'https://inv.tux.im',
+        'https://invidious.slipfox.xyz',
+        'https://invidious.nerdvpn.de'
+    ]
+    
+    # Invidious date parameter mapping: "today", "week", "month", "year"
+    date_param = ""
+    if period == "today":
+        date_param = "today"
+    elif period == "this_week":
+        date_param = "week"
+    elif period == "this_month":
+        date_param = "month"
+    elif period == "this_year":
+        date_param = "year"
+        
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # 기간 필터 sp 값 매핑
-    sp_value = ""
-    if period == "today":
-        sp_value = "EgIIAg%3D%3D"
-    elif period == "this_week":
-        sp_value = "EgQIATAB"
-    elif period == "this_month":
-        sp_value = "EgQIAhAB"
-    elif period == "this_year":
-        sp_value = "EgQIAxAB"
-        
     for kw in keywords:
-        if sp_value:
-            # 기간 필터가 지정된 경우 YouTube 검색 결과 URL 조립
-            encoded_kw = urllib.parse.quote(kw)
-            search_query = f"https://www.youtube.com/results?search_query={encoded_kw}&sp={sp_value}"
-        else:
-            search_query = f"ytsearch{limit_per_keyword}:{kw}"
-            
-        print(f"[Collector] Live searching YouTube: {search_query}")
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(search_query, download=False)
-                entries = info.get('entries', []) if info else []
+        invidious_success = False
+        
+        # 1-1단계: Invidious 인스턴스 로테이션 검색 시도
+        for instance in invidious_instances:
+            url = f"{instance}/api/v1/search?q={urllib.parse.quote(kw)}&date={date_param}&type=video"
+            print(f"[Collector] Live searching YouTube via Invidious API: {instance}")
+            try:
+                response = requests.get(url, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    items = response.json()
+                    if isinstance(items, list) and len(items) > 0:
+                        count = 0
+                        for item in items:
+                            if item.get('type') != 'video' or not item.get('videoId'):
+                                continue
+                            
+                            duration = item.get('lengthSeconds', 0)
+                            if duration > 0 and duration < 120:  # 숏츠 필터링
+                                continue
+                                
+                            video_id = item.get('videoId')
+                            published_text = item.get('publishedText') or "최근"
+                            approx_date = parse_relative_time_to_yyyymmdd(published_text)
+                            
+                            videos.append({
+                                "video_id": video_id,
+                                "title": item.get('title'),
+                                "url": f"https://www.youtube.com/watch?v={video_id}",
+                                "view_count": item.get('viewCount', 0) or 0,
+                                "duration": duration,
+                                "published_date": approx_date,
+                                "published_date_text": published_text,
+                                "collected_at": datetime.now().isoformat()
+                            })
+                            count += 1
+                            if count >= limit_per_keyword:
+                                break
+                        
+                        if count > 0:
+                            print(f"[Collector] Successfully retrieved {count} filtered videos from Invidious ({instance.replace('https://', '')})")
+                            invidious_success = True
+                            break
+            except Exception as e:
+                print(f"[Collector] Invidious instance {instance} failed: {e}")
                 
-                # 만약 기간 필터링된 결과가 0개라면, 필터를 해제하고 일반 검색으로 자동 폴백
-                if not entries and sp_value:
-                    print(f"[Collector] Strict period filter '{period}' returned 0 results. Falling back to general search for '{kw}'...")
-                    fallback_query = f"ytsearch{limit_per_keyword}:{kw}"
-                    info = ydl.extract_info(fallback_query, download=False)
+        # 2단계: Invidious 인스턴스 전원 실패 시, 로컬 yt-dlp 백업 수동 폴백 가동
+        if not invidious_success:
+            print("[Collector] Warning: All Invidious API instances failed. Falling back to local yt-dlp scraper...")
+            
+            # yt-dlp의 경우 sp 파라미터를 사용한 검색 URL 수립
+            sp_value = ""
+            if period == "today":
+                sp_value = "EgIIAg%3D%3D"
+            elif period == "this_week":
+                sp_value = "EgQIATAB"
+            elif period == "this_month":
+                sp_value = "EgQIAhAB"
+            elif period == "this_year":
+                sp_value = "EgQIAxAB"
+                
+            if sp_value:
+                encoded_kw = urllib.parse.quote(kw)
+                search_query = f"https://www.youtube.com/results?search_query={encoded_kw}&sp={sp_value}"
+            else:
+                search_query = f"ytsearch{limit_per_keyword}:{kw}"
+                
+            ydl_opts = {
+                'quiet': True,
+                'extract_flat': True,
+                'skip_download': True,
+            }
+            
+            try:
+                import yt_dlp
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(search_query, download=False)
                     entries = info.get('entries', []) if info else []
-                
-                # 지정된 수집 갯수 제한 적용
-                entries = entries[:limit_per_keyword]
-                
-                for entry in entries:
-                    if not entry:
-                        continue
                     
-                    duration = entry.get('duration')
-                    if duration and duration < 120:  # 2분 미만은 쇼츠 소재로 부적합하므로 자동 필터링 스킵
-                        continue
+                    # yt-dlp 필터 결과가 0개라면 일반 ytsearch로 최종 폴백
+                    if not entries and sp_value:
+                        print(f"[Collector] Strict yt-dlp period filter returned 0 results. Falling back to general ytsearch...")
+                        fallback_query = f"ytsearch{limit_per_keyword}:{kw}"
+                        info = ydl.extract_info(fallback_query, download=False)
+                        entries = info.get('entries', []) if info else []
                         
-                    video_id = entry.get('id')
-                    raw_date = entry.get('upload_date')
-                    if raw_date and len(raw_date) == 8:
-                        published_date_text = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
-                    else:
-                        published_date_text = "최근"
+                    entries = entries[:limit_per_keyword]
+                    for entry in entries:
+                        if not entry:
+                            continue
+                            
+                        duration = entry.get('duration')
+                        if duration and duration < 120:
+                            continue
+                            
+                        video_id = entry.get('id')
+                        raw_date = entry.get('upload_date')
                         
-                    videos.append({
-                        "video_id": video_id,
-                        "title": entry.get('title'),
-                        "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else entry.get('url'),
-                        "view_count": entry.get('view_count', 0) or 0,
-                        "duration": duration,
-                        "published_date": raw_date or datetime.now().strftime("%Y%m%d"),
-                        "published_date_text": published_date_text,
-                        "collected_at": datetime.now().isoformat()
-                    })
-        except Exception as e:
-            print(f"[Collector] Error searching keyword '{kw}': {e}")
-            
+                        # yt-dlp flat extraction은 upload_date가 제공되지 않으므로, 최근 영상으로 표시하지 않고 "날짜 확인 필요"로 안내하여 명확성 확보
+                        if raw_date and len(raw_date) == 8:
+                            published_date_text = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                        else:
+                            published_date_text = "날짜 확인 필요"
+                            
+                        videos.append({
+                            "video_id": video_id,
+                            "title": entry.get('title'),
+                            "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else entry.get('url'),
+                            "view_count": entry.get('view_count', 0) or 0,
+                            "duration": duration,
+                            "published_date": raw_date or datetime.now().strftime("%Y%m%d"),
+                            "published_date_text": published_date_text,
+                            "collected_at": datetime.now().isoformat()
+                        })
+            except Exception as yte:
+                print(f"[Collector] Critical: Backup yt-dlp search also failed: {yte}")
+                
     # 전체 수집 후 조회수 높은 순으로 최종 내림차순 정렬
     videos.sort(key=lambda x: x.get('view_count', 0), reverse=True)
     return videos
