@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const videoGridContainer = document.getElementById('video-grid-container');
   const consoleTerminal = document.getElementById('console-terminal');
   const btnTriggerAction = document.getElementById('btn-trigger-action');
+  const recentSearchesContainer = document.getElementById('recent-searches-container');
   
   // 모달 요소 참조
   const btnSettings = document.getElementById('btn-settings');
@@ -55,11 +56,60 @@ document.addEventListener('DOMContentLoaded', () => {
     alert("🔑 연동 설정이 브라우저 로컬 저장소에 저장되었습니다.");
   });
 
-  // 2. 무백엔드(Serverless) 유튜브 검색 파싱 연동
+  // 최근 검색어 렌더링 초기 구동
+  renderRecentSearches();
+
+  // 2. 최근 검색어 로직 관리
+  function renderRecentSearches() {
+    const searches = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+    recentSearchesContainer.innerHTML = "";
+    
+    if (searches.length === 0) {
+      recentSearchesContainer.style.display = 'none';
+      return;
+    }
+    
+    recentSearchesContainer.style.display = 'flex';
+    searches.forEach(keyword => {
+      const badge = document.createElement('span');
+      badge.className = 'search-badge';
+      badge.innerText = keyword;
+      badge.addEventListener('click', () => {
+        searchInput.value = keyword;
+        executeSearch();
+      });
+      recentSearchesContainer.appendChild(badge);
+    });
+  }
+
+  function saveRecentSearch(keyword) {
+    if (!keyword) return;
+    let searches = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+    
+    // 중복 제거 및 리스트 맨 앞으로 이동
+    searches = searches.filter(k => k !== keyword);
+    searches.unshift(keyword);
+    
+    // 최대 8개까지만 저장
+    if (searches.length > 8) searches.pop();
+    
+    localStorage.setItem('recent_searches', JSON.stringify(searches));
+    renderRecentSearches();
+  }
+
+  // 3. 지능형 4중 CORS 프록시 자동 우회 로테이션 유튜브 검색
   searchBtn.addEventListener('click', executeSearch);
   searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') executeSearch();
   });
+
+  // 무료 고화질 공개 CORS 프록시 API 4중 방어 배열
+  const proxyEndpoints = [
+    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    url => `https://api.codetabs.com/v1/proxy?url=${encodeURIComponent(url)}`,
+    url => `https://thingproxy.freeboard.io/fetch/${url}`
+  ];
 
   async function executeSearch() {
     const query = searchInput.value.trim();
@@ -70,12 +120,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // 최근 검색어 기록
+    saveRecentSearch(query);
+
     searchBtn.disabled = true;
     searchBtn.innerHTML = '<span class="spinner"></span> 스캔 중...';
     videoGridContainer.innerHTML = `
       <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
         <span class="spinner" style="border-top-color: var(--color-point); width: 30px; height: 30px; margin-bottom: 12px;"></span>
-        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">CORS 프록시망 우회 실시간 유튜브 핫소재 탐색 중...</p>
+        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">다중 프록시 로테이션 망을 통해 유튜브 스캔 중...</p>
       </div>
     `;
 
@@ -90,58 +143,74 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (period === "this_month") periodSuffix = " \"this month\"";
 
     const targetUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + periodSuffix)}`;
-    
-    // 무료 공개 CORS 우회 프록시 활용 (Hugging Face / GitHub Pages 호환성 100%)
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+    let parsedVideos = [];
+    let success = false;
 
-    try {
-      const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error("네트워크 연결 실패");
+    // 4중 프록시 자동 로테이션 루프 기동
+    for (let i = 0; i < proxyEndpoints.length; i++) {
+      const getProxyUrl = proxyEndpoints[i];
+      const requestUrl = getProxyUrl(targetUrl);
       
-      const data = await response.json();
-      const html = data.contents;
-      
-      // 유튜브 InitialData JSON 영역 파싱 기법 (CORS 우회 100% 무설치 기법)
-      const parsedVideos = parseYoutubeHtml(html);
-      renderVideoCards(parsedVideos);
-
-    } catch (err) {
-      console.error(err);
-      // 프록시 일시적 지연을 감안한 2차 무료 프록시 폴백
-      console.log("[JS Parser] Primary proxy failed. Trying fallback proxy...");
+      console.log(`[JS Parser] Trying CORS Proxy #${i + 1}...`);
       try {
-        const fallbackProxy = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-        const response = await fetch(fallbackProxy);
-        if (!response.ok) throw new Error("CORS 프록시 서버 무응답");
-        const html = await response.text();
-        const parsedVideos = parseYoutubeHtml(html);
-        renderVideoCards(parsedVideos);
-      } catch (fallbackErr) {
-        alert(`유튜브 실시간 수집 실패: 공용 CORS 프록시 서버 혼잡. 잠시 후 다시 검색해 주세요. 에러: ${fallbackErr.message}`);
-        videoGridContainer.innerHTML = `
-          <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
-            <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: #c62828; margin-bottom: 12px;"></i>
-            <p style="color: #c62828; font-weight: 600;">실시간 탐색 실패: 공용 프록시 혼잡</p>
-          </div>
-        `;
+        // 프록시 서버별 6초 타임아웃 제한 장치
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6500);
+
+        const response = await fetch(requestUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+        
+        let html = "";
+        if (requestUrl.includes('allorigins')) {
+          const data = await response.json();
+          html = data.contents;
+        } else {
+          html = await response.text();
+        }
+
+        parsedVideos = parseYoutubeHtml(html);
+        
+        if (parsedVideos.length > 0) {
+          success = true;
+          console.log(`[JS Parser] Proxy #${i + 1} Succeeded! Found ${parsedVideos.length} videos.`);
+          break; // 성공 시 루프 중단
+        }
+      } catch (err) {
+        console.warn(`[JS Parser] Proxy #${i + 1} Failed: ${err.message}. Retrying next...`);
+        // 터미널 창이 비어있지 않다면 경고 한 줄 출력
+        if (consoleTerminal.innerHTML.trim() !== "") {
+          appendTerminalLine(`⚠️ ${i + 1}번 프록시 지연... 우회 경로 #${i + 2}번 활성화 시도 중`, "error");
+        }
       }
-    } finally {
-      searchBtn.disabled = false;
-      searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
     }
+
+    if (success) {
+      renderVideoCards(parsedVideos);
+    } else {
+      alert("⚠️ 유튜브 검색 서버 혼잡: 4개 프록시 우회로가 모두 일시 지연 중입니다. 잠시 후 [소재 스캔하기]를 다시 클릭해 주세요.");
+      videoGridContainer.innerHTML = `
+        <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
+          <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: #c62828; margin-bottom: 12px;"></i>
+          <p style="color: #c62828; font-weight: 600;">실시간 탐색 실패: 프록시 일시 혼잡</p>
+        </div>
+      `;
+    }
+
+    searchBtn.disabled = false;
+    searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
   }
 
   // 유튜브 HTML 소스코드에서 비디오 데이터 JSON 큐레이션 및 조회수 기준 정렬 파서
   function parseYoutubeHtml(html) {
     const videos = [];
     try {
-      // ytInitialData 파싱 정규식
       const match = html.match(/ytInitialData\s*=\s*({.+?});/);
       if (match) {
         const jsonStr = match[1];
         const dataObj = JSON.parse(jsonStr);
         
-        // 유튜브 검색 결과 렌더러 노드 추적
         const contents = dataObj.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
         if (contents) {
           const itemSection = contents.find(c => c.itemSectionRenderer);
@@ -154,15 +223,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const videoId = videoRenderer.videoId;
             const title = videoRenderer.title?.runs?.[0]?.text || "알 수 없는 비디오";
             
-            // 조회수 문자열 정수 가공 파싱
             const viewsText = videoRenderer.viewCountText?.simpleText || "";
             const viewCount = parseViewText(viewsText);
             
-            // 듀레이션 정보 파싱
             const durationText = videoRenderer.lengthText?.simpleText || "";
             const durationSec = parseDurationText(durationText);
             
-            // 숏츠 및 2분 미만 쇼츠 대상 부적합 영상은 자동 필터링 스킵
             if (durationSec > 0 && durationSec < 120) continue;
 
             const uploadText = videoRenderer.publishedTimeText?.simpleText || "최근";
@@ -174,24 +240,22 @@ document.addEventListener('DOMContentLoaded', () => {
               view_count: viewCount,
               duration: durationSec,
               published_date_text: uploadText,
-              published_date: "20260530", // 모킹 일자
+              published_date: "20260530",
               collected_at: new Date().toISOString()
             });
           }
         }
       }
     } catch (e) {
-      console.error("[JS Parser] JSON parsing error, fallback to legacy regex: ", e);
+      console.error("[JS Parser] JSON parsing error: ", e);
     }
     
-    // 최종 조회수 기준 내림차순 정렬
     videos.sort((a, b) => b.view_count - a.view_count);
-    return videos.slice(0, 8); // 상위 8개 정제
+    return videos.slice(0, 8);
   }
 
   function parseViewText(text) {
     if (!text) return 0;
-    // 예: "조회수 1.5만회", "1,500 views", "1.5M views", "조회수 120만회"
     let num = 0;
     const cleanText = text.replace(/,/g, '');
     const numMatch = cleanText.match(/([0-9\.]+)/);
@@ -221,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return 0;
   }
 
-  // 3. 비디오 결과 카드 렌더링
+  // 4. 비디오 결과 카드 렌더링
   function renderVideoCards(videos) {
     if (!videos || videos.length === 0) {
       videoGridContainer.innerHTML = `
@@ -265,7 +329,6 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
 
-      // 제작 타겟 카드 활성화 선택 이벤트
       card.addEventListener('click', (e) => {
         if (e.target.closest('a')) return;
         
@@ -293,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 4. GitHub Actions API 다이렉트 트리거 기동 (브라우저 직접 API 송신)
+  // 5. GitHub Actions API 다이렉트 트리거 기동 (브라우저 직접 API 송신)
   btnTriggerAction.addEventListener('click', async () => {
     const token = localStorage.getItem('github_token');
     const owner = localStorage.getItem('repo_owner') || "GoldSH69";
@@ -316,7 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
     consoleTerminal.innerHTML = "";
     appendTerminalLine("🚀 1단계: 깃허브 API를 사용해 원격 가상 컴퓨터 기동 신호 직접 전송 중...", "success");
 
-    // GitHub API dispatches 직접 호출 (무설치 서버리스 통신)
     const triggerUrl = `https://api.github.com/repos/${owner}/${name}/actions/workflows/remote_shorts_generator.yml/dispatches`;
     
     try {
@@ -344,7 +406,6 @@ document.addEventListener('DOMContentLoaded', () => {
       appendTerminalLine("✅ GitHub Actions 원격 가상 서버 시동 성공!", "success");
       appendTerminalLine("📡 2단계: 깃허브 가상 러너 상태 실시간 추적 스캔 개시 (5초 주기로 스캔)...", "success");
       
-      // 5초 간격으로 Actions 런 감시 돌입
       startStatusPolling(token, owner, name);
 
     } catch (err) {
@@ -354,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 5. 깃허브 API 실시간 스캔 (폴링)
+  // 6. 깃허브 API 실시간 스캔 (폴링)
   function startStatusPolling(token, owner, name) {
     if (statusPollingInterval) clearInterval(statusPollingInterval);
     
@@ -385,8 +446,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const latestRun = generatorRuns[0];
-        const status = latestRun.status;       // queued, in_progress, completed
-        const conclusion = latestRun.conclusion;   // success, failure
+        const status = latestRun.status;
+        const conclusion = latestRun.conclusion;
         const runId = latestRun.id;
 
         if (status === 'queued') {
@@ -403,7 +464,6 @@ document.addEventListener('DOMContentLoaded', () => {
             appendTerminalLine("📦 1일 한정 만료 깃허브 보관함에 아티팩트 ZIP 아카이브가 안전하게 저장되었습니다.", "success");
             appendTerminalLine("==================================================", "success");
             
-            // 완료 성공 시 아티팩트 다운로드 웹페이지 주소 노출
             const artifactPageUrl = `https://github.com/${owner}/${name}/actions/runs/${runId}`;
             renderZipDownloadButton(artifactPageUrl);
           } else {
@@ -414,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         appendTerminalLine(`⚠️ 상태 스캔 경고: ${err.message}`);
       }
-    }, 5000); // 5초
+    }, 5000);
   }
 
   function renderZipDownloadButton(downloadUrl) {
@@ -438,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnTriggerAction.innerHTML = '<i class="fa-solid fa-rocket"></i> 쇼츠 자동화 제작 기동 (GitHub Actions)';
   }
 
-  // 6. 터미널 헬퍼 및 유틸리티
+  // 7. 터미널 헬퍼 및 유틸리티
   function appendTerminalLine(text, className = "") {
     const placeholder = document.getElementById('terminal-placeholder');
     if (placeholder) placeholder.remove();

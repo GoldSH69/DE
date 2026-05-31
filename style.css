@@ -562,6 +562,33 @@ header p {
 }
 
 /* 반응형 모바일 브레이크포인트 */
+/* 최근 검색어 배지 웜 샌드 스타일 */
+.recent-searches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.search-badge {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-sub);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.search-badge:hover {
+  background-color: var(--color-point);
+  color: #ffffff;
+  border-color: var(--color-point);
+  transform: translateY(-1px);
+}
+
 @media (max-width: 1024px) {
   .main-workspace {
     grid-template-columns: 1fr;
