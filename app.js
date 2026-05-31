@@ -258,10 +258,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let periodSuffix = "";
-    if (period === "today") periodSuffix = " date:today";
-    else if (period === "this_week") periodSuffix = " date:week";
-    else if (period === "this_month") periodSuffix = " date:month";
-    else if (period === "this_year") periodSuffix = " date:year";
+    let dateParam = "";
+    if (period === "today") {
+      periodSuffix = " date:today";
+      dateParam = "today";
+    } else if (period === "this_week") {
+      periodSuffix = " date:week";
+      dateParam = "week";
+    } else if (period === "this_month") {
+      periodSuffix = " date:month";
+      dateParam = "month";
+    } else if (period === "this_year") {
+      periodSuffix = " date:year";
+      dateParam = "year";
+    }
 
     // 1단계: 6중 인비디어스 오픈 API 로테이션 검색 시도 (CORS 완전 개방 구조)
     appendTerminalLine("📡 1단계: 6중 인비디어스 오픈 검색망 연동 시도 중...");
@@ -269,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     for (let i = 0; i < invidiousInstances.length; i++) {
       const instance = invidiousInstances[i];
-      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query + periodSuffix)}&type=video`;
+      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&date=${dateParam}&type=video`;
       
       console.log(`[Invidious Search] Trying instance: ${instance}`);
       try {
