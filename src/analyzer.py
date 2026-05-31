@@ -23,9 +23,7 @@ def analyze_video_transcript(transcript_text, video_title="알 수 없는 동영
     
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("[Analyzer] Warning: GEMINI_API_KEY environment variable is not set.")
-        print("[Analyzer] Running in Mock/Fallback mode with sample analysis data.")
-        return get_mock_analysis_result()
+        raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다. 대시보드 우측 상단의 톱니바퀴 [연동 키 설정] 버튼을 눌러 Gemini API Key를 입력하고 저장해 주세요. (로컬 구동의 경우 실행하는 터미널 세션에 GEMINI_API_KEY 환경 변수가 제공되어야 합니다.)")
 
     try:
         # google-genai 최신 클라이언트 생성
@@ -68,8 +66,7 @@ def analyze_video_transcript(transcript_text, video_title="알 수 없는 동영
         
     except Exception as e:
         print(f"[Analyzer] Error during Gemini Analysis: {e}")
-        print("[Analyzer] Falling back to Mock/Fallback mode.")
-        return get_mock_analysis_result()
+        raise RuntimeError(f"Gemini AI 분석 기획안 생성 실패 (원인: {str(e)})")
 
 def get_mock_analysis_result():
     """Gemini API가 없거나 에러 발생 시 테스트용으로 사용할 Mock 데이터를 반환합니다."""

@@ -104,7 +104,7 @@ def fetch_and_clean_subtitles(video_url):
         
     except Exception as e:
         print(f"[Main] Subtitle extraction failed: {e}")
-        return "자막 추출에 실패하여 기본 템플릿 기준으로 기획을 시도합니다."
+        raise RuntimeError(f"유튜브 자막(대본) 추출 실패 (원인: {str(e)}) - 유튜브 자막 차단(429) 상태이거나 네트워크 에러입니다. 이 경우 깃허브 액션 원격 빌드를 구동해 보시기 바랍니다.")
 
 def run_main_pipeline(specific_url=None):
     """Dopamine Explorer v2 올인원 영상 자동화 파이프라인을 기동합니다."""
