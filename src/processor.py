@@ -217,16 +217,30 @@ def merge_shorts_video(cut_files, tts_files, selected_scenes, output_merged_path
                 
                 # 첫 번째 조각인 경우 후킹을 위해 나레이션 목소리 시작을 voice_delay(0.5초) 만큼 딜레이
                 if idx == 0:
-                    delayed_tts = tts_audio.set_start(voice_delay)
+                    if hasattr(tts_audio, 'with_start'):
+                        delayed_tts = tts_audio.with_start(voice_delay)
+                    else:
+                        delayed_tts = tts_audio.set_start(voice_delay)
                     # 비디오 길이가 나레이션보다 짧으면 오디오가 잘리지 않도록 비디오 멈춤(정지화면) 대기 연장
                     actual_duration = max(v_dur, a_dur + voice_delay)
                 else:
-                    delayed_tts = tts_audio.set_start(0.0)
+                    if hasattr(tts_audio, 'with_start'):
+                        delayed_tts = tts_audio.with_start(0.0)
+                    else:
+                        delayed_tts = tts_audio.set_start(0.0)
                     actual_duration = max(v_dur, a_dur)
                 
                 # 오디오 채널 합성: 원본 영상 배경음(약간 줄임) + AI 성우 나레이션
                 # 원본 음량은 예능 배경음 역할을 하도록 0.35배로 조율, 성우 목소리는 1.0배로 돋보이게 설정
-                background_audio = original_audio.multiply_volume(0.35) if original_audio else None
+                if original_audio:
+                    if hasattr(original_audio, 'with_volume_scaled'):
+                        background_audio = original_audio.with_volume_scaled(0.35)
+                    elif hasattr(original_audio, 'multiply_volume'):
+                        background_audio = original_audio.multiply_volume(0.35)
+                    else:
+                        background_audio = original_audio
+                else:
+                    background_audio = None
                 
                 audio_tracks = []
                 if background_audio:
@@ -234,6 +248,10 @@ def merge_shorts_video(cut_files, tts_files, selected_scenes, output_merged_path
                 audio_tracks.append(delayed_tts)
                 
                 mixed_audio = CompositeAudioClip(audio_tracks)
+                if hasattr(mixed_audio, 'with_duration'):
+                    mixed_audio = mixed_audio.with_duration(actual_duration)
+                else:
+                    mixed_audio = mixed_audio.set_duration(actual_duration)
                 
                 # 비디오 길이가 나레이션보다 짧은 경우, 마지막 프레임 정지 상태로 영상 길이 연장
                 if actual_duration > v_dur:

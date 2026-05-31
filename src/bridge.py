@@ -150,9 +150,12 @@ def create_fcp_xml(video_cuts, tts_voices, output_xml_path, fps=30):
         print(f"[Bridge] Error writing XML file: {e}")
         raise e
 
-def create_subtitles_srt(selected_scenes, video_cuts, tts_voices, output_srt_path, fps=30):
+def create_subtitles_srt(selected_scenes, video_cuts, tts_voices, output_srt_path, fps=30, languages_list=None):
     """자막 텍스트와 실제 배치되는 파일들의 길이를 기반으로 싱크가 맞는 .srt 파일을 생성합니다."""
-    print("[Bridge] Generating synchronized SRT subtitle file...")
+    if languages_list is None:
+        languages_list = ['KO']
+        
+    print(f"[Bridge] Generating synchronized SRT subtitle file with languages: {languages_list}...")
     
     srt_lines = []
     current_time_sec = 0.0
@@ -182,7 +185,29 @@ def create_subtitles_srt(selected_scenes, video_cuts, tts_voices, output_srt_pat
         start_str = format_srt_time(start_time)
         end_str = format_srt_time(end_time)
         
-        caption = scene.get("caption", "")
+        # 사용자가 선택한 언어 목록에 맞춰 자막 병기 믹싱
+        lines = []
+        for lang in languages_list:
+            lang = lang.strip().lower()
+            if lang == 'ko':
+                caption_text = scene.get("caption_ko") or scene.get("caption") or ""
+            elif lang == 'ja':
+                caption_text = scene.get("caption_ja") or ""
+            elif lang == 'en':
+                caption_text = scene.get("caption_en") or ""
+            elif lang == 'zh':
+                caption_text = scene.get("caption_zh") or ""
+            else:
+                caption_text = ""
+                
+            if caption_text:
+                lines.append(caption_text)
+                
+        # 만약 아무런 다국어 자막이 없다면 1순위 한글 자막 폴백
+        if not lines:
+            lines.append(scene.get("caption_ko") or scene.get("caption") or "")
+            
+        caption = "\n".join(lines)
         
         srt_lines.append(f"{idx + 1}")
         srt_lines.append(f"{start_str} --> {end_str}")
@@ -199,6 +224,4 @@ def create_subtitles_srt(selected_scenes, video_cuts, tts_voices, output_srt_pat
         print(f"[Bridge] Error writing SRT file: {e}")
 
 if __name__ == "__main__":
-    # 목킹 테스트용 예시
-    # create_fcp_xml(["cut_1.mp4"], ["voice_1.mp3"], "test.xml")
     pass

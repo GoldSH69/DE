@@ -208,7 +208,7 @@ def api_stream_generate_local():
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '🔗 4단계: 캡컷(CapCut) 로컬 자막용 SRT 한글 번역 자막 파일 생성 중...'})}\n\n"
             # SRT 자막 파일 생성
-            create_subtitles_srt(analysis.get("selected_scenes", []), cut_files, tts_files, project_srt_path)
+            create_subtitles_srt(analysis.get("selected_scenes", []), cut_files, tts_files, project_srt_path, languages_list=languages_str.split(','))
             
             # FCP XML도 보존 생성 (호환용)
             create_fcp_xml(cut_files, tts_files, project_xml_path, fps=30)

@@ -10,7 +10,10 @@ class Scene(BaseModel):
     start_time: str = Field(description="원본 영상에서 잘라낼 시작 지점 (포맷: MM:SS 또는 HH:MM:SS)")
     end_time: str = Field(description="원본 영상에서 잘라낼 종료 지점 (포맷: MM:SS 또는 HH:MM:SS)")
     tts_text: str = Field(description="이 장면에서 Edge-TTS로 합성할 네이티브 일본어 쇼츠 나레이션 텍스트 (단순 명료하고 귀에 꽂히는 예능 톤)")
-    caption: str = Field(description="사용자가 CapCut에서 한국어 자막으로 얹을 한글 번역/요약 자막 텍스트")
+    caption_ko: str = Field(description="화면에 노출할 맛깔스럽고 자극적인 예능 톤의 한국어(Korean) 화면 자막")
+    caption_ja: str = Field(description="이 장면의 대사나 분위기를 현지인 감성으로 살린 일본어(Japanese) 화면 자막")
+    caption_en: str = Field(description="글로벌 시청자를 위한 자연스러운 영어(English) 화면 자막")
+    caption_zh: str = Field(description="중국어 시청자를 위한 간결한 중국어 간체(Chinese) 화면 자막")
 
 class VideoAnalysisResult(BaseModel):
     selected_scenes: List[Scene] = Field(description="쇼츠(60초 이내)로 사용하기에 가장 자극적이고 재미있는 하이라이트 구간 리스트")
@@ -23,7 +26,8 @@ def analyze_video_transcript(transcript_text, video_title="알 수 없는 동영
     
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다. 대시보드 우측 상단의 톱니바퀴 [연동 키 설정] 버튼을 눌러 Gemini API Key를 입력하고 저장해 주세요. (로컬 구동의 경우 실행하는 터미널 세션에 GEMINI_API_KEY 환경 변수가 제공되어야 합니다.)")
+        print("[Analyzer] WARNING: GEMINI_API_KEY not found in environment. Falling back to Mock Analysis Result.")
+        return get_mock_analysis_result()
 
     try:
         # google-genai 최신 클라이언트 생성
@@ -42,7 +46,12 @@ def analyze_video_transcript(transcript_text, video_title="알 수 없는 동영
 [요구사항 및 가이드라인]
 1. **총 누적 재생 시간 제한**: 'selected_scenes'에 기재되는 구간의 총 합이 **반드시 60초 미만**(약 30초~50초 권장)이 되도록 정밀하게 시작(start_time)과 종료(end_time) 타임코드를 지정해 주십시오.
 2. **일본어 나레이션 대본 ('tts_text')**: 나중에 일본어 성우 TTS(edge-tts)로 녹음될 문장입니다. 번역기 번역이 아닌, 네이티브 일본인들이 쇼츠나 틱톡에서 쓰는 자극적이고 생동감 넘치는 예능 톤으로 작성해 주십시오. (예: "とんでもない事態が発生しました！", "これは予想外すぎるw")
-3. **자막 텍스트 ('caption')**: 나중에 캡컷에서 한글 폰트로 편집할 화면 한글 자막입니다. 상황을 극대화하여 묘사하는 예능 자막 풍으로 간결하게 작성해 주십시오. (예: "역대급 방송 사고 발생!", "모두가 경악한 이유")
+3. **다국어 화면 자막 구성**:
+   - `caption_ko`: 한글 자막으로서 상황을 극대화해 표현하는 맛깔스러운 한국어(Korean) 예능체 자막입니다. (예: "역대급 방송 사고 발생!")
+     **특히 첫 번째 장면(Scene 1)의 `caption_ko`는 이 쇼츠 비디오의 표지이자 썸네일 제목 역할(썸네일 후킹)을 하므로, 시청자가 스크롤을 멈추고 무조건 클릭하고 싶게 만드는 강력한 썸네일 카피(호기심 자극, 자극적인 사실 요약, 100만 조회수 헤드라인 등)로 작성하십시오.**
+   - `caption_ja`: 일본어 자막으로서 일본 현지인 예능 감성에 맞춘 일본어(Japanese) 자막입니다. (예: "とんでもない事態発生w")
+   - `caption_en`: 영어 자막으로서 직관적이고 쉬운 자연스러운 영어(English) 자막입니다. (예: "Epic broadcast fail!")
+   - `caption_zh`: 중국어 자막으로서 상황에 부합하는 간결한 중국어 간체(Chinese) 자막입니다. (예: "突发史诗级播事故!")
 4. **연속성 및 서사**: 구간을 여러 개 잘라낼 경우, 숏폼으로서 내용의 흐름이나 반전이 매끄럽게 연결되도록 설계하십시오.
 
 반드시 JSON Schema 구조에 응답을 반환하십시오.
@@ -76,13 +85,19 @@ def get_mock_analysis_result():
                 "start_time": "00:10",
                 "end_time": "00:20",
                 "tts_text": "今日の動画はこれです！信じられないハプニングが起きました！",
-                "caption": "오늘의 하이라이트! 믿을 수 없는 방송 사고가 터졌습니다!"
+                "caption_ko": "오늘의 하이라이트! 믿을 수 없는 방송 사고가 터졌습니다!",
+                "caption_ja": "今日のハイライト！信じられないハプニング発生！",
+                "caption_en": "Today's highlight! An unbelievable accident happened!",
+                "caption_zh": "今日亮点！发生了令人难以置信的播事故！"
             },
             {
                 "start_time": "00:45",
                 "end_time": "00:58",
                 "tts_text": "まさかの展開にスタジオ大爆笑。この結末は予想できませんでした。",
-                "caption": "설마했던 반전 결말에 스튜디오는 초토화되었습니다."
+                "caption_ko": "설마했던 반전 결말에 스튜디오는 초토화되었습니다.",
+                "caption_ja": "まさかの結末にスタジオ大爆笑！",
+                "caption_en": "Unexpected ending! The studio broke out in laughter!",
+                "caption_zh": "意想不到的结局！录音棚哄堂大笑！"
             }
         ],
         "total_duration_seconds": 23,

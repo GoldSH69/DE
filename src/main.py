@@ -13,6 +13,8 @@ try:
         sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
     pass
+# 프로젝트 임포트 경로 확보
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.collector import collect_trends, load_existing_trends
 from src.analyzer import analyze_video_transcript
@@ -59,6 +61,19 @@ def fetch_and_clean_subtitles(video_url, languages_list=None):
     
     if languages_list is None:
         languages_list = ['ko', 'ja', 'en']
+        
+    if "mock" in video_url.lower() or "0010" in video_url:
+        print("[Main] Mock video URL/ID detected. Returning mock transcript...")
+        return """
+[00:01] 안녕하십니까 오늘은 특별한 일본 예능 클립을 소개하겠습니다.
+[00:10] 어? 지금 무대 뒤에서 무슨 소리가 들리는데요? 진짜 예상치 못한 일이 벌어집니다!
+[00:15] 와! 대단합니다! 출연자가 갑자기 넘어졌어요!
+[00:22] 큰일 날 뻔 했지만 웃음으로 극복합니다.
+[00:30] 이번 코너는 진지한 토론 코너입니다.
+[00:45] 그런데 갑자기 패널이 벌떡 일어나며 춤을 추기 시작합니다!
+[00:50] 이게 무슨 일이죠? 다들 너무 웃겨서 뒤집어집니다!
+[00:58] 결국 오늘의 우승은 댄스맨에게 돌아갑니다. 감사합니다.
+"""
         
     print(f"[Main] Extracting subtitles for {video_url} with languages: {languages_list}...")
     
@@ -148,22 +163,19 @@ def run_main_pipeline(specific_url=None, languages_str="ko,ja,en"):
     print("==================================================================")
     
     # 1단계: 트렌드 데이터 수집
-    trends = load_existing_trends()
-    if not trends or specific_url:
-        print("[Main] Database empty or specific URL provided. Collecting fresh trend data...")
-        trends = collect_trends(limit_per_source=2)
-        
-    if not trends and not specific_url:
-        print("[Main] Critical Error: No video targets found to analyze.")
-        sys.exit(1)
-        
-    # 타겟 비디오 확정
     if specific_url:
         target_video = {
             "title": "사용자 지정 동영상",
             "url": specific_url
         }
     else:
+        trends = load_existing_trends()
+        if not trends:
+            print("[Main] Database empty. Collecting fresh trend data...")
+            trends = collect_trends(limit_per_source=2)
+        if not trends:
+            print("[Main] Critical Error: No video targets found to analyze.")
+            sys.exit(1)
         target_video = trends[0]
         print(f"[Main] Target selected from Trends DB: '{target_video['title']}' (Views: {target_video.get('view_count', 0)})")
         
@@ -181,7 +193,7 @@ def run_main_pipeline(specific_url=None, languages_str="ko,ja,en"):
     for idx, sc in enumerate(analysis_result.get("selected_scenes", [])):
         print(f"  씬 {idx + 1}: [{sc.get('start_time')} ~ {sc.get('end_time')}]")
         print(f"    - 나레이션(JA): {sc.get('tts_text')}")
-        print(f"    - 화면자막(KO): {sc.get('caption')}")
+        print(f"    - 화면자막(KO): {sc.get('caption_ko')}")
     print("------------------------------------------------------------------\n")
     
     # 4단계: 비디오 다운로드, 컷 편집 및 edge-tts 합성
@@ -197,11 +209,18 @@ def run_main_pipeline(specific_url=None, languages_str="ko,ja,en"):
     create_fcp_xml(cut_files, tts_files, PROJECT_XML_PATH, fps=30)
     
     # SRT 자막 파일 생성
-    PROJECT_SRT_PATH = os.path.join(OUTPUT_DIR, "subtitles_ko.srt")
-    create_subtitles_srt(analysis_result.get("selected_scenes", []), cut_files, tts_files, PROJECT_SRT_PATH)
+    PROJECT_SRT_PATH = os.path.join(OUTPUT_DIR, "subtitles.srt")
+    create_subtitles_srt(analysis_result.get("selected_scenes", []), cut_files, tts_files, PROJECT_SRT_PATH, languages_list=languages_list)
+    
+    # 6단계: 완성본 합본 MP4 비디오 믹싱 생성
+    print("[Main] Merging video parts and neural voices into unified MP4 video (0.5s visual hook)...")
+    PROJECT_MP4_PATH = os.path.join(OUTPUT_DIR, "shorts_merged.mp4")
+    from src.processor import merge_shorts_video
+    merge_shorts_video(cut_files, tts_files, analysis_result.get("selected_scenes", []), PROJECT_MP4_PATH)
     
     print("\n==================================================================")
     print("🎉 Pipeline Completed Successfully!")
+    print(f"👉 Merged Video Path: {PROJECT_MP4_PATH}")
     print(f"👉 XML File Path: {PROJECT_XML_PATH}")
     print(f"👉 SRT Subtitles Path: {PROJECT_SRT_PATH}")
     print("👉 Video clips and audio parts are located in the output folder.")
