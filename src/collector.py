@@ -70,13 +70,20 @@ def fetch_videos_from_channel(channel_url, limit=5):
                         continue
                     
                     video_id = entry.get('id')
+                    raw_date = entry.get('upload_date')
+                    if raw_date and len(raw_date) == 8:
+                        published_date_text = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                    else:
+                        published_date_text = "최근"
+                    
                     videos.append({
                         "video_id": video_id,
                         "title": entry.get('title'),
                         "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else entry.get('url'),
                         "view_count": entry.get('view_count', 0),
                         "duration": duration,
-                        "published_date": entry.get('upload_date', datetime.now().strftime("%Y%m%d")),
+                        "published_date": raw_date or datetime.now().strftime("%Y%m%d"),
+                        "published_date_text": published_date_text,
                         "collected_at": datetime.now().isoformat()
                     })
     except Exception as e:
@@ -85,6 +92,7 @@ def fetch_videos_from_channel(channel_url, limit=5):
 
 def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week"):
     """키워드 검색을 통해 특정 기간(하루, 1주, 한달) 동안의 고성과 영상을 수집 및 조회수 순 정렬합니다."""
+    import urllib.parse
     videos = []
     ydl_opts = {
         'quiet': True,
@@ -92,43 +100,66 @@ def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week")
         'skip_download': True,
     }
     
-    # 기간 필터 키워드 매핑
-    period_suffix = ""
+    # 기간 필터 sp 값 매핑
+    sp_value = ""
     if period == "today":
-        period_suffix = " date:today"
+        sp_value = "EgIIAg%3D%3D"
     elif period == "this_week":
-        period_suffix = " date:week"
+        sp_value = "EgQIATAB"
     elif period == "this_month":
-        period_suffix = " date:month"
+        sp_value = "EgQIAhAB"
     elif period == "this_year":
-        period_suffix = " date:year"
+        sp_value = "EgQIAxAB"
         
     for kw in keywords:
-        # 검색어 뒤에 기간 한정 유튜브 지시어 믹싱
-        search_query = f"ytsearch{limit_per_keyword}:{kw}{period_suffix}"
+        if sp_value:
+            # 기간 필터가 지정된 경우 YouTube 검색 결과 URL 조립
+            encoded_kw = urllib.parse.quote(kw)
+            search_query = f"https://www.youtube.com/results?search_query={encoded_kw}&sp={sp_value}"
+        else:
+            search_query = f"ytsearch{limit_per_keyword}:{kw}"
+            
         print(f"[Collector] Live searching YouTube: {search_query}")
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
-                if 'entries' in info:
-                    for entry in info['entries']:
-                        if not entry:
-                            continue
+                entries = info.get('entries', []) if info else []
+                
+                # 만약 기간 필터링된 결과가 0개라면, 필터를 해제하고 일반 검색으로 자동 폴백
+                if not entries and sp_value:
+                    print(f"[Collector] Strict period filter '{period}' returned 0 results. Falling back to general search for '{kw}'...")
+                    fallback_query = f"ytsearch{limit_per_keyword}:{kw}"
+                    info = ydl.extract_info(fallback_query, download=False)
+                    entries = info.get('entries', []) if info else []
+                
+                # 지정된 수집 갯수 제한 적용
+                entries = entries[:limit_per_keyword]
+                
+                for entry in entries:
+                    if not entry:
+                        continue
+                    
+                    duration = entry.get('duration')
+                    if duration and duration < 120:  # 2분 미만은 쇼츠 소재로 부적합하므로 자동 필터링 스킵
+                        continue
                         
-                        duration = entry.get('duration')
-                        if duration and duration < 120:  # 2분 미만은 쇼츠 소재로 부적합하므로 자동 필터링 스킵
-                            continue
-                            
-                        video_id = entry.get('id')
-                        videos.append({
-                            "video_id": video_id,
-                            "title": entry.get('title'),
-                            "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else entry.get('url'),
-                            "view_count": entry.get('view_count', 0),
-                            "duration": duration,
-                            "published_date": entry.get('upload_date', datetime.now().strftime("%Y%m%d")),
-                            "collected_at": datetime.now().isoformat()
-                        })
+                    video_id = entry.get('id')
+                    raw_date = entry.get('upload_date')
+                    if raw_date and len(raw_date) == 8:
+                        published_date_text = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                    else:
+                        published_date_text = "최근"
+                        
+                    videos.append({
+                        "video_id": video_id,
+                        "title": entry.get('title'),
+                        "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else entry.get('url'),
+                        "view_count": entry.get('view_count', 0) or 0,
+                        "duration": duration,
+                        "published_date": raw_date or datetime.now().strftime("%Y%m%d"),
+                        "published_date_text": published_date_text,
+                        "collected_at": datetime.now().isoformat()
+                    })
         except Exception as e:
             print(f"[Collector] Error searching keyword '{kw}': {e}")
             

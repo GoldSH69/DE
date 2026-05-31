@@ -150,6 +150,54 @@ def create_fcp_xml(video_cuts, tts_voices, output_xml_path, fps=30):
         print(f"[Bridge] Error writing XML file: {e}")
         raise e
 
+def create_subtitles_srt(selected_scenes, video_cuts, tts_voices, output_srt_path, fps=30):
+    """자막 텍스트와 실제 배치되는 파일들의 길이를 기반으로 싱크가 맞는 .srt 파일을 생성합니다."""
+    print("[Bridge] Generating synchronized SRT subtitle file...")
+    
+    srt_lines = []
+    current_time_sec = 0.0
+    
+    for idx, scene in enumerate(selected_scenes):
+        video_path = video_cuts[idx] if idx < len(video_cuts) else None
+        audio_path = tts_voices[idx] if idx < len(tts_voices) else None
+        
+        v_duration = get_media_duration(video_path, is_video=True) if video_path else 0.0
+        a_duration = get_media_duration(audio_path, is_video=False) if audio_path else 0.0
+        
+        actual_duration = max(v_duration, a_duration)
+        if actual_duration == 0.0:
+            continue
+            
+        start_time = current_time_sec
+        end_time = current_time_sec + actual_duration
+        
+        # SRT 타임코드 포맷팅: HH:MM:SS,mmm
+        def format_srt_time(seconds):
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            ms = int((seconds - int(seconds)) * 1000)
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+            
+        start_str = format_srt_time(start_time)
+        end_str = format_srt_time(end_time)
+        
+        caption = scene.get("caption", "")
+        
+        srt_lines.append(f"{idx + 1}")
+        srt_lines.append(f"{start_str} --> {end_str}")
+        srt_lines.append(caption)
+        srt_lines.append("") # 빈 줄
+        
+        current_time_sec += actual_duration
+        
+    try:
+        with open(output_srt_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(srt_lines))
+        print(f"[Bridge] SRT subtitles created successfully -> {output_srt_path}")
+    except Exception as e:
+        print(f"[Bridge] Error writing SRT file: {e}")
+
 if __name__ == "__main__":
     # 목킹 테스트용 예시
     # create_fcp_xml(["cut_1.mp4"], ["voice_1.mp3"], "test.xml")

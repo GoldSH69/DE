@@ -496,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <a href="${video.url}" target="_blank" class="video-title" style="text-decoration: none; display: block;" title="새 창에서 원본 확인">${escapeHtml(video.title)}</a>
           <div class="video-meta">
             <span class="video-views"><i class="fa-solid fa-eye"></i> ${formatViews(video.view_count)}</span>
-            <span class="video-date"><i class="fa-solid fa-calendar-days"></i> ${video.published_date_text}</span>
+            <span class="video-date"><i class="fa-solid fa-calendar-days"></i> ${video.published_date_text || video.published_date || "최근"}</span>
           </div>
           <button class="btn-card-action" style="margin-top: 14px;">
             <i class="fa-solid fa-circle-check"></i> 이 영상 제작 대상으로 선택

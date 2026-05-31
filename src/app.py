@@ -164,7 +164,7 @@ def api_stream_generate_local():
             
             from src.analyzer import analyze_video_transcript
             from src.processor import run_processing_pipeline
-            from src.bridge import create_fcp_xml
+            from src.bridge import create_fcp_xml, create_subtitles_srt
             from src.main import fetch_and_clean_subtitles
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '🚀 1단계: 유튜브 동영상 자막(SRT/VTT) 추출 중...'})}\n\n"
@@ -187,7 +187,12 @@ def api_stream_generate_local():
             
             yield f"data: {json.dumps({'status': 'progress', 'message': '🔗 4단계: 캡컷(CapCut) 직접 연동용 FCP 7 XML 뼈대 구성 및 스마트 동기화 정렬 중...'})}\n\n"
             create_fcp_xml(cut_files, tts_files, PROJECT_XML_PATH, fps=30)
-            yield f"data: {json.dumps({'status': 'progress', 'message': '✅ FCP 7 XML 타임라인 생성 완료!'})}\n\n"
+            
+            # SRT 자막 파일 생성
+            PROJECT_SRT_PATH = os.path.join(OUTPUT_DIR, "subtitles_ko.srt")
+            create_subtitles_srt(analysis.get("selected_scenes", []), cut_files, tts_files, PROJECT_SRT_PATH)
+            
+            yield f"data: {json.dumps({'status': 'progress', 'message': '✅ FCP 7 XML 및 SRT 자막 생성 완료!'})}\n\n"
             
             # 최종 마침표
             yield f"data: {json.dumps({'status': 'complete_local', 'message': '🎉 [로컬 직접 저장 완료] 결과 파일들이 내 컴퓨터 output/ 폴더에 직접 수립되었습니다!', 'xml_path': PROJECT_XML_PATH})}\n\n"

@@ -13,7 +13,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 from src.collector import collect_trends, load_existing_trends
 from src.analyzer import analyze_video_transcript
 from src.processor import run_processing_pipeline
-from src.bridge import create_fcp_xml
+from src.bridge import create_fcp_xml, create_subtitles_srt
 
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
 PROJECT_XML_PATH = os.path.join(OUTPUT_DIR, "project_xml.xml")
@@ -156,15 +156,21 @@ def run_main_pipeline(specific_url=None):
         voice="ja-JP-NanamiNeural"  # 네이티브 일본어 여성 신경망 목소리 기본값
     )
     
-    # 5단계: CapCut FCP 7 XML 타임라인 브릿지 생성
+    # 5단계: CapCut FCP 7 XML 타임라인 브릿지 생성 및 SRT 자막 빌드
     print("[Main] Connecting clips and voices into CapCut FCP 7 XML format...")
     create_fcp_xml(cut_files, tts_files, PROJECT_XML_PATH, fps=30)
+    
+    # SRT 자막 파일 생성
+    PROJECT_SRT_PATH = os.path.join(OUTPUT_DIR, "subtitles_ko.srt")
+    create_subtitles_srt(analysis_result.get("selected_scenes", []), cut_files, tts_files, PROJECT_SRT_PATH)
     
     print("\n==================================================================")
     print("🎉 Pipeline Completed Successfully!")
     print(f"👉 XML File Path: {PROJECT_XML_PATH}")
+    print(f"👉 SRT Subtitles Path: {PROJECT_SRT_PATH}")
     print("👉 Video clips and audio parts are located in the output folder.")
-    print("👉 CapCut Desktop을 실행하고 '가져오기 -> XML'을 눌러 XML 파일을 불러오세요!")
+    print("👉 [1] CapCut Desktop을 실행하고 '가져오기(Import) -> XML'을 눌러 XML 파일을 불러오세요!")
+    print("👉 [2] 자막은 CapCut '텍스트(Text) -> 로컬 자막(Local Captions) -> 가져오기(Import)'에서 'subtitles_ko.srt'를 불러와 타임라인에 드래그하세요!")
     print("==================================================================")
 
 if __name__ == "__main__":
