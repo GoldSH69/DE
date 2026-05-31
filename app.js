@@ -107,15 +107,22 @@ document.addEventListener('DOMContentLoaded', () => {
     url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     url => `https://api.codetabs.com/v1/proxy?url=${encodeURIComponent(url)}`,
+    url => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
     url => `https://thingproxy.freeboard.io/fetch/${url}`
   ];
+
+  function extractYoutubeVideoId(url) {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  }
 
   async function executeSearch() {
     const query = searchInput.value.trim();
     const period = searchPeriod.value;
 
     if (!query) {
-      alert("스캔할 예능 키워드를 입력해 주세요.");
+      alert("스캔할 예능 키워드 또는 유튜브 영상 URL을 입력해 주세요.");
       return;
     }
 
@@ -123,10 +130,87 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchBtn.disabled = true;
     searchBtn.innerHTML = '<span class="spinner"></span> 스캔 중...';
+    
+    // 유튜브 직접 영상 주소(URL) 감지 시 bypass 처리
+    const directVideoId = extractYoutubeVideoId(query);
+    if (directVideoId) {
+      videoGridContainer.innerHTML = `
+        <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
+          <span class="spinner" style="border-top-color: var(--color-point); width: 30px; height: 30px; margin-bottom: 12px;"></span>
+          <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">입력하신 유튜브 영상 정보 로딩 중...</p>
+        </div>
+      `;
+      
+      selectedVideoUrl = "";
+      selectedVideoTitle = "";
+      btnSaveLocal.disabled = true;
+      btnTriggerAction.disabled = true;
+
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(query)}&format=json`;
+        const response = await fetch(oembedUrl);
+        if (!response.ok) throw new Error("oEmbed 호출 실패");
+        const data = await response.json();
+        
+        const video = {
+          video_id: directVideoId,
+          title: data.title || "직접 입력한 유튜브 영상",
+          url: query,
+          view_count: 0,
+          duration: 0,
+          published_date_text: data.author_name || "유튜브 직접 링크",
+          published_date: "",
+          collected_at: new Date().toISOString()
+        };
+        
+        renderVideoCards([video]);
+        appendTerminalLine(`✅ 직접 링크 파싱 성공: [${video.title}]`, "success");
+      } catch (err) {
+        console.warn("[oEmbed Fail] Retrying with noembed...", err);
+        try {
+          const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(query)}`;
+          const response = await fetch(noembedUrl);
+          const data = await response.json();
+          if (data.error) throw new Error(data.error);
+
+          const video = {
+            video_id: directVideoId,
+            title: data.title || "직접 입력한 유튜브 영상",
+            url: query,
+            view_count: 0,
+            duration: 0,
+            published_date_text: data.author_name || "유튜브 직접 링크",
+            published_date: "",
+            collected_at: new Date().toISOString()
+          };
+          
+          renderVideoCards([video]);
+          appendTerminalLine(`✅ 직접 링크 파싱 성공 (noembed): [${video.title}]`, "success");
+        } catch (fallbackErr) {
+          const video = {
+            video_id: directVideoId,
+            title: "직접 입력한 유튜브 영상",
+            url: query,
+            view_count: 0,
+            duration: 0,
+            published_date_text: "직접 링크",
+            published_date: "",
+            collected_at: new Date().toISOString()
+          };
+          renderVideoCards([video]);
+          appendTerminalLine(`⚠️ 정보 로드 제한으로 기본 영상 정보로 세팅 완료 (ID: ${directVideoId})`);
+        }
+      }
+      
+      searchBtn.disabled = false;
+      searchBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기';
+      return;
+    }
+
     videoGridContainer.innerHTML = `
       <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
         <span class="spinner" style="border-top-color: var(--color-point); width: 30px; height: 30px; margin-bottom: 12px;"></span>
-        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">다중 프록시 로테이션 망을 통해 유튜브 스캔 중...</p>
+        <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-point);">5중 프록시 로테이션 망을 통해 유튜브 스캔 중...</p>
       </div>
     `;
 
@@ -174,20 +258,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } catch (err) {
         console.warn(`[JS Parser] Proxy #${i + 1} Failed: ${err.message}. Retrying next...`);
-        if (consoleTerminal.innerHTML.trim() !== "") {
-          appendTerminalLine(`⚠️ ${i + 1}번 프록시 지연... 우회 경로 #${i + 2}번 활성화 시도 중`, "error");
-        }
+        appendTerminalLine(`⚠️ ${i + 1}번 프록시 혼잡... 우회 경로 #${i + 2}번 자동 스위칭 중`, "error");
       }
     }
 
     if (success) {
       renderVideoCards(parsedVideos);
     } else {
-      alert("⚠️ 유튜브 검색 서버 혼잡: 4개 프록시 우회로가 모두 일시 지연 중입니다. 잠시 후 [소재 스캔하기]를 다시 클릭해 주세요.");
+      alert("⚠️ 유튜브 검색 서버 혼잡: 5개 공용 프록시 우회로가 모두 일시 지연 상태입니다.\n\n💡 해결 방법:\n유튜브에서 소스로 사용하고 싶은 영상 주소(URL)를 복사한 뒤 검색창에 붙여넣고 [소재 스캔하기]를 눌러보세요. 프록시 서버 거침없이 1초 만에 즉시 가져올 수 있습니다.");
       videoGridContainer.innerHTML = `
         <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
           <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: #c62828; margin-bottom: 12px;"></i>
-          <p style="color: #c62828; font-weight: 600;">실시간 탐색 실패: 프록시 일시 혼잡</p>
+          <p style="color: #c62828; font-weight: 600;">실시간 스캔 실패: 프록시 우회망 전체 지연</p>
+          <p style="font-size: 0.85rem; color: var(--color-sub); margin-top: 8px;">원하는 영상의 유튜브 주소(URL)를 검색창에 직접 입력하여 바로 진행해 보세요.</p>
         </div>
       `;
     }
