@@ -1,0 +1,173 @@
+import os
+import sys
+import json
+import re
+import yt_dlp
+
+# 윈도우 콘솔 한글/이모지 출력 인코딩 오류(cp949) 방지 설정
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
+from src.collector import collect_trends, load_existing_trends
+from src.analyzer import analyze_video_transcript
+from src.processor import run_processing_pipeline
+from src.bridge import create_fcp_xml
+
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
+PROJECT_XML_PATH = os.path.join(OUTPUT_DIR, "project_xml.xml")
+
+def fetch_and_clean_subtitles(video_url):
+    """yt-dlp를 사용하여 비디오의 자막을 다운로드하고, 순수 텍스트와 시간 정보만 추출합니다."""
+    print(f"[Main] Extracting subtitles for {video_url}...")
+    
+    # 자막 파일 저장을 위한 임시 경로
+    subtitle_temp_tmpl = os.path.join(OUTPUT_DIR, "temp_sub")
+    
+    ydl_opts = {
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': ['ko', 'ja', 'en'],  # 한국어 우선, 일본어, 영어 순
+        'outtmpl': subtitle_temp_tmpl,
+        'quiet': True
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            
+        # 다운로드된 파일 탐색 (.vtt 또는 .srt 확장자)
+        sub_file = None
+        for file in os.listdir(OUTPUT_DIR):
+            if file.startswith("temp_sub.") and (file.endswith(".vtt") or file.endswith(".srt")):
+                sub_file = os.path.join(OUTPUT_DIR, file)
+                break
+                
+        if not sub_file:
+            print("[Main] Warning: No subtitle files (.vtt/.srt) found on YouTube. Generates a placeholder transcript.")
+            return "자막 정보가 존재하지 않아 오프닝과 핵심 위주의 하이라이트를 추출합니다."
+
+        # 자막 파싱 및 텍스트 정제
+        cleaned_lines = []
+        with open(sub_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # VTT/SRT 타임코드 및 태그 정제 정규식
+        # 예: 00:01:23.450 --> 00:01:25.670
+        time_pattern = re.compile(r'(\d{2}:\d{2}:\d{2}[\.,]\d{3}) --> (\d{2}:\d{2}:\d{2}[\.,]\d{3})')
+        html_tag_pattern = re.compile(r'<[^>]+>')
+        
+        current_time = "00:00"
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.isdigit() or "WEBVTT" in line or "NOTE" in line:
+                continue
+                
+            match = time_pattern.search(line)
+            if match:
+                # 시작 시간만 파싱하여 타임라인 참조용으로 기록 (HH:MM:SS -> MM:SS 간소화)
+                full_time = match.group(1).split('.')[0].split(',')[0]
+                time_parts = full_time.split(':')
+                if time_parts[0] == "00":
+                    current_time = f"{time_parts[1]}:{time_parts[2]}"
+                else:
+                    current_time = full_time
+                continue
+                
+            # HTML 태그 제거 및 텍스트 가공
+            text_line = html_tag_pattern.sub('', line)
+            text_line = re.sub(r'&\w+;', '', text_line)  # &nbsp; 등 엔티티 제거
+            text_line = text_line.strip()
+            
+            if text_line:
+                # 중복 줄 및 시스템 메세지 제외
+                fmt_line = f"[{current_time}] {text_line}"
+                if cleaned_lines and cleaned_lines[-1] == fmt_line:
+                    continue
+                cleaned_lines.append(fmt_line)
+                
+        # 임시 자막 파일 청소
+        try:
+            os.remove(sub_file)
+        except Exception:
+            pass
+            
+        final_transcript = "\n".join(cleaned_lines[:500]) # 컨텍스트 토큰 절약을 위해 상위 500줄만 파싱
+        print(f"[Main] Subtitle parsing complete. Extracted {len(cleaned_lines)} blocks.")
+        return final_transcript
+        
+    except Exception as e:
+        print(f"[Main] Subtitle extraction failed: {e}")
+        return "자막 추출에 실패하여 기본 템플릿 기준으로 기획을 시도합니다."
+
+def run_main_pipeline(specific_url=None):
+    """Dopamine Explorer v2 올인원 영상 자동화 파이프라인을 기동합니다."""
+    print("==================================================================")
+    print("🚀 Dopamine Explorer v2 (Automation & CapCut Bridge) Pipeline Start")
+    print("==================================================================")
+    
+    # 1단계: 트렌드 데이터 수집
+    trends = load_existing_trends()
+    if not trends or specific_url:
+        print("[Main] Database empty or specific URL provided. Collecting fresh trend data...")
+        trends = collect_trends(limit_per_source=2)
+        
+    if not trends and not specific_url:
+        print("[Main] Critical Error: No video targets found to analyze.")
+        sys.exit(1)
+        
+    # 타겟 비디오 확정
+    if specific_url:
+        target_video = {
+            "title": "사용자 지정 동영상",
+            "url": specific_url
+        }
+    else:
+        target_video = trends[0]
+        print(f"[Main] Target selected from Trends DB: '{target_video['title']}' (Views: {target_video.get('view_count', 0)})")
+        
+    # 2단계: 자막 추출
+    transcript = fetch_and_clean_subtitles(target_video["url"])
+    
+    # 3단계: Gemini AI 분석 및 기획안 생성
+    analysis_result = analyze_video_transcript(transcript, target_video["title"])
+    
+    print("\n------------------------------------------------------------------")
+    print("💡 Gemini AI 분석 및 일본어 쇼츠 기획 결과")
+    print(f"사유(Rationale): {analysis_result.get('rationale')}")
+    print(f"총 시간(Duration): {analysis_result.get('total_duration_seconds')} 초")
+    for idx, sc in enumerate(analysis_result.get("selected_scenes", [])):
+        print(f"  씬 {idx + 1}: [{sc.get('start_time')} ~ {sc.get('end_time')}]")
+        print(f"    - 나레이션(JA): {sc.get('tts_text')}")
+        print(f"    - 화면자막(KO): {sc.get('caption')}")
+    print("------------------------------------------------------------------\n")
+    
+    # 4단계: 비디오 다운로드, 컷 편집 및 edge-tts 합성
+    print("[Main] Process video files, cut clips, and synthesize neural TTS voices...")
+    cut_files, tts_files = run_processing_pipeline(
+        target_video["url"], 
+        analysis_result.get("selected_scenes", []),
+        voice="ja-JP-NanamiNeural"  # 네이티브 일본어 여성 신경망 목소리 기본값
+    )
+    
+    # 5단계: CapCut FCP 7 XML 타임라인 브릿지 생성
+    print("[Main] Connecting clips and voices into CapCut FCP 7 XML format...")
+    create_fcp_xml(cut_files, tts_files, PROJECT_XML_PATH, fps=30)
+    
+    print("\n==================================================================")
+    print("🎉 Pipeline Completed Successfully!")
+    print(f"👉 XML File Path: {PROJECT_XML_PATH}")
+    print("👉 Video clips and audio parts are located in the output folder.")
+    print("👉 CapCut Desktop을 실행하고 '가져오기 -> XML'을 눌러 XML 파일을 불러오세요!")
+    print("==================================================================")
+
+if __name__ == "__main__":
+    # 실행 시 인자로 유튜브 URL을 전달하면 해당 비디오로 바로 기획 및 브릿지 수행
+    url_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run_main_pipeline(url_arg)

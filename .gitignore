@@ -1,0 +1,15 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Large media files and output directory
+output/
+temp_sub.*
+
+# Environment variables
+.env
+.venv/
+venv/
