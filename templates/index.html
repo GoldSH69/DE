@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dopamine Explorer v2 - Premium Shorts Studio</title>
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="전 세계 인기 예능 소재 발굴부터 칼같은 컷 편집, AI 나레이션 및 CapCut 타임라인 브릿지 자동 연동까지 지원하는 올인원 쇼츠 스튜디오">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- FontAwesome Icon Library -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <div class="dashboard-container">
+    <!-- 프리미엄 헤더 -->
+    <header>
+      <div>
+        <h1>Dopamine <span>Explorer v2</span></h1>
+        <p>전 세계 검증된 예능 소재를 발굴하고 캡컷(CapCut) 타임라인을 5분 만에 즉시 조립합니다.</p>
+      </div>
+      <div>
+        <p><i class="fa-solid fa-server"></i> Local Server Mode : <strong>Active</strong></p>
+      </div>
+    </header>
+
+    <!-- 대화형 검색 콘솔 -->
+    <section class="search-console-card">
+      <div class="search-title">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <span>소재 스캔 및 인기 예능 소재 발굴</span>
+      </div>
+      <div class="search-input-group">
+        <div class="search-input-wrapper">
+          <input type="text" id="search-input" class="search-input" placeholder="스캔할 예능 키워드를 입력하세요 (예: 일본 예능 레전드, 무한도전 몰카...)">
+        </div>
+        <button id="search-btn" class="btn-primary">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> 소재 스캔하기
+        </button>
+      </div>
+    </section>
+
+    <!-- 양방향 패널 레이아웃 -->
+    <main class="main-workspace">
+      
+      <!-- 좌측: 비디오 그리드 목록 -->
+      <section class="video-grid-section">
+        <div class="section-headline">
+          <i class="fa-solid fa-circle-play"></i> 발굴된 예능 소재 후보
+        </div>
+        
+        <div id="video-grid-container" class="video-grid">
+          <!-- 스크립트로 동적 로딩될 비디오 카드 자리 -->
+          <div class="terminal-placeholder" style="grid-column: span 2; padding: 60px 0;">
+            <i class="fa-solid fa-arrow-pointer" style="font-size: 2.5rem; color: var(--color-border); margin-bottom: 12px;"></i>
+            <p style="font-family: var(--font-title); font-weight: 600; color: var(--color-sub);">상단 검색창에 키워드를 입력해 핫한 소재들을 발굴해 보세요!</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 우측: 실시간 엔진 터미널 콘솔 -->
+      <section class="engine-console-section">
+        <div class="terminal-title">
+          <i class="fa-solid fa-terminal"></i>
+          <span>작업 진행 실시간 스트리밍 터미널</span>
+        </div>
+        
+        <div id="console-terminal" class="terminal-body">
+          <!-- 비어있는 상태의 터미널 플레이스홀더 -->
+          <div class="terminal-placeholder" id="terminal-placeholder">
+            <i class="fa-solid fa-gears" style="font-size: 2.5rem; color: var(--color-border); margin-bottom: 12px;"></i>
+            <p>비디오 카드를 선택하여 [쇼츠 제작하기]를 누르면<br>이곳에 실시간 기획 분석 로그가 송출됩니다.</p>
+          </div>
+        </div>
+
+        <!-- 듀얼 제어 버튼 패널 -->
+        <div class="console-actions-panel">
+          <!-- 1번 상황 버튼: 로컬 즉시 저장 -->
+          <button id="btn-save-local" class="btn-control btn-save-local" disabled>
+            <i class="fa-solid fa-folder-open"></i> 내 컴퓨터 폴더에 바로 저장
+          </button>
+          <!-- 2번 상황 버튼: 원격 ZIP 아카이브 다운로드 -->
+          <button id="btn-download-zip" class="btn-control btn-download-zip" disabled>
+            <i class="fa-solid fa-file-zipper"></i> ZIP 압축파일로 다운로드
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- 비동기 UI 연동용 메인 스크립트 연결 -->
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
