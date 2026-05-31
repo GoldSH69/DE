@@ -199,7 +199,7 @@ header p {
   border-color: var(--color-sub-point);
 }
 
-/* 제작 타겟 비디오 최종 선택 시 하이라이트 효과 [NEW] */
+/* 제작 타겟 비디오 최종 선택 시 하이라이트 효과 */
 .video-card.selected-active {
   border: 3px solid var(--color-point);
   box-shadow: 0 16px 32px rgba(139, 107, 61, 0.18);
@@ -428,7 +428,7 @@ header p {
   border-color: var(--color-point);
 }
 
-/* 설정 팝업 모달창 디자인 [NEW] */
+/* 설정 팝업 모달창 디자인 */
 .modal-overlay {
   position: fixed;
   top: 0;
