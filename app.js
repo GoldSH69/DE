@@ -258,9 +258,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let periodSuffix = "";
-    if (period === "today") periodSuffix = " \"today\"";
-    else if (period === "this_week") periodSuffix = " \"this week\"";
-    else if (period === "this_month") periodSuffix = " \"this month\"";
+    if (period === "today") periodSuffix = " date:today";
+    else if (period === "this_week") periodSuffix = " date:week";
+    else if (period === "this_month") periodSuffix = " date:month";
+    else if (period === "this_year") periodSuffix = " date:year";
 
     // 1단계: 6중 인비디어스 오픈 API 로테이션 검색 시도 (CORS 완전 개방 구조)
     appendTerminalLine("📡 1단계: 6중 인비디어스 오픈 검색망 연동 시도 중...");

@@ -34,7 +34,7 @@ def api_search():
     """유튜브 기간 필터 및 조회수 순 자동 정렬 검색 API"""
     data = request.get_json() or {}
     query = data.get('query', '').strip()
-    period = data.get('period', 'this_week')  # today, this_week, this_month
+    period = data.get('period', 'this_week')  # today, this_week, this_month, this_year
     
     if not query:
         return jsonify({"error": "검색 키워드를 입력해 주세요."}), 400

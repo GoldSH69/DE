@@ -95,11 +95,13 @@ def search_videos_by_keywords(keywords, limit_per_keyword=5, period="this_week")
     # 기간 필터 키워드 매핑
     period_suffix = ""
     if period == "today":
-        period_suffix = " \"today\""
+        period_suffix = " date:today"
     elif period == "this_week":
-        period_suffix = " \"this week\""
+        period_suffix = " date:week"
     elif period == "this_month":
-        period_suffix = " \"this month\""
+        period_suffix = " date:month"
+    elif period == "this_year":
+        period_suffix = " date:year"
         
     for kw in keywords:
         # 검색어 뒤에 기간 한정 유튜브 지시어 믹싱
